@@ -6,6 +6,11 @@ export enum ImageCategory {
   LIFESTYLE_A = 'LIFESTYLE_A',
   LIFESTYLE_B = 'LIFESTYLE_B',
   LIFESTYLE_C = 'LIFESTYLE_C',
+  LIFESTYLE_THAI_STREET_FOOD = 'LIFESTYLE_THAI_STREET_FOOD',
+  LIFESTYLE_THAI_MARKET = 'LIFESTYLE_THAI_MARKET',
+  LIFESTYLE_THAI_KITCHEN = 'LIFESTYLE_THAI_KITCHEN',
+  LIFESTYLE_ISAN_KITCHEN = 'LIFESTYLE_ISAN_KITCHEN',
+  LIFESTYLE_THAI_LOCAL_RESTAURANT = 'LIFESTYLE_THAI_LOCAL_RESTAURANT',
   SIZE_CHART = 'SIZE_CHART',
   SOCIAL_PROOF = 'SOCIAL_PROOF',
   TUTORIAL = 'TUTORIAL'
@@ -152,9 +157,14 @@ export const IMAGE_CATEGORIES_METADATA: Record<ImageCategory, { title: string; d
   [ImageCategory.LIFESTYLE_A]: { title: 'การใช้งานจริง A (Home)', desc: 'Indoor / Cozy setting', order: 4 },
   [ImageCategory.LIFESTYLE_B]: { title: 'การใช้งานจริง B (Outdoor)', desc: 'Nature / Outside setting', order: 5 },
   [ImageCategory.LIFESTYLE_C]: { title: 'การใช้งานจริง C (Professional)', desc: 'Office / Urban setting', order: 6 },
-  [ImageCategory.SIZE_CHART]: { title: 'ขนาด/สเปก (Size Chart)', desc: 'Comparison/Scale', order: 7 },
-  [ImageCategory.SOCIAL_PROOF]: { title: 'รีวิว (Social Proof)', desc: 'Customer satisfaction', order: 8 },
-  [ImageCategory.TUTORIAL]: { title: 'วิธีใช้งาน (Tutorial)', desc: 'How to use / Gifts', order: 9 },
+  [ImageCategory.LIFESTYLE_THAI_STREET_FOOD]: { title: 'Thai Street Food', desc: 'สตรีทฟู้ดไทย / รถเข็น', order: 7 },
+  [ImageCategory.LIFESTYLE_THAI_MARKET]: { title: 'Thai Market', desc: 'ตลาดสดไทย / ตลาดนัด', order: 8 },
+  [ImageCategory.LIFESTYLE_THAI_KITCHEN]: { title: 'Thai Kitchen', desc: 'ครัวไทย / ทำอาหารไทย', order: 9 },
+  [ImageCategory.LIFESTYLE_ISAN_KITCHEN]: { title: 'Isan Kitchen', desc: 'ครัวอีสาน / ส้มตำ', order: 10 },
+  [ImageCategory.LIFESTYLE_THAI_LOCAL_RESTAURANT]: { title: 'Thai Local Restaurant', desc: 'ร้านอาหารท้องถิ่นไทย', order: 11 },
+  [ImageCategory.SIZE_CHART]: { title: 'ขนาด/สเปก (Size Chart)', desc: 'Comparison/Scale', order: 12 },
+  [ImageCategory.SOCIAL_PROOF]: { title: 'รีวิว (Social Proof)', desc: 'Customer satisfaction', order: 13 },
+  [ImageCategory.TUTORIAL]: { title: 'วิธีใช้งาน (Tutorial)', desc: 'How to use / Gifts', order: 14 },
 };
 
 // Helper function to get platform-specific categories

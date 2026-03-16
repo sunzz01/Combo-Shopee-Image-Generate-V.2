@@ -199,8 +199,8 @@ export function StepSelect() {
                                     type: 'SEND_TO_SHOPEE_MASTER',
                                     payload: {
                                         productUrl,
-                                        productName: state.analysisResult?.product_name || tab?.title?.split('|')[0]?.split('-')[0]?.trim() || '',
-                                        productDesc: state.analysisResult?.ideal_lifestyle_setting || '',
+                                        productName: state.scrapedContent?.productName || state.analysisResult?.product_name || tab?.title?.split('|')[0]?.split('-')[0]?.trim() || '',
+                                        productDesc: state.scrapedContent?.productDescription || state.analysisResult?.ideal_lifestyle_setting || '',
                                         images: selectedImages
                                     }
                                 });

@@ -1,9 +1,10 @@
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
-import type { AppStep, ScannedImage, ProductAnalysis, GoogleUser, GeneratedPrompt, SellingContent } from '../../types';
+import type { AppStep, ScannedImage, ProductAnalysis, GoogleUser, GeneratedPrompt, SellingContent, ScrapedContent } from '../../types';
 
 interface AppState {
     step: AppStep;
     scannedImages: ScannedImage[];
+    scrapedContent?: ScrapedContent;
     selectedImages: string[];
     analysisResult: ProductAnalysis | null;
     generatedPrompts: GeneratedPrompt[];
@@ -23,6 +24,7 @@ interface AppState {
 type Action =
     | { type: 'SET_STEP'; payload: AppStep }
     | { type: 'SET_SCANNED_IMAGES'; payload: ScannedImage[] }
+    | { type: 'SET_SCRAPED_CONTENT'; payload: ScrapedContent }
     | { type: 'TOGGLE_IMAGE_SELECTION'; payload: string }
     | { type: 'SET_ANALYSIS_RESULT'; payload: ProductAnalysis }
     | { type: 'SET_GENERATED_PROMPTS'; payload: GeneratedPrompt[] }
@@ -72,6 +74,8 @@ function appReducer(state: AppState, action: Action): AppState {
             return { ...state, step: action.payload };
         case 'SET_SCANNED_IMAGES':
             return { ...state, scannedImages: action.payload };
+        case 'SET_SCRAPED_CONTENT':
+            return { ...state, scrapedContent: action.payload };
         case 'TOGGLE_IMAGE_SELECTION':
             const isSelected = state.selectedImages.includes(action.payload);
             return {

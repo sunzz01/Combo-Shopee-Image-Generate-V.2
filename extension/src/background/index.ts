@@ -281,8 +281,12 @@ Rules:
 
                 // Priority 1: Find by localhost URL (most reliable)
                 let targetTab = tabs.find(t =>
-                    t.url?.includes('localhost:5173') ||
-                    t.url?.includes('127.0.0.1:5173')
+                    t.url?.includes('localhost:8080') ||
+                    t.url?.includes('127.0.0.1:8080') ||
+                    t.url?.includes('localhost:8081') ||
+                    t.url?.includes('127.0.0.1:8081') ||
+                    t.url?.includes('localhost:3001') ||
+                    t.url?.includes('127.0.0.1:3001')
                 );
 
                 // Priority 2: Find by specific title (SHOPEE MASTER app title)
@@ -296,10 +300,24 @@ Rules:
 
                 console.log('[Background] Target tab found:', targetTab);
 
+                // Helper: Convert image URL to Base64 via fetch in background
+                const imageUrlToBase64 = async (url: string): Promise<string> => {
+                    if (url.startsWith('data:')) return url; // Already base64
+                    try {
+                        const response = await fetch(url);
+                        const blob = await response.blob();
+                        return await blobToBase64(blob);
+                    } catch (err) {
+                        console.warn('[Background] Failed to convert image to Base64:', url, err);
+                        return url; // Return original URL as fallback
+                    }
+                };
+
                 const injectAndSend = async (tabId: number, payload: any) => {
                     console.log('[Background] Injecting script into tab:', tabId);
                     await chrome.scripting.executeScript({
                         target: { tabId },
+                        world: 'MAIN',
                         func: (data: any) => {
                             console.log('[Injected] Sending data to page:', data);
                             window.postMessage({
@@ -313,7 +331,17 @@ Rules:
                 };
 
                 if (targetTab?.id) {
-                    const payload = message.payload;
+                    let payload = message.payload;
+
+                    // Convert image URLs to Base64 before sending
+                    if (payload.images && Array.isArray(payload.images)) {
+                        console.log('[Background] Converting', payload.images.length, 'images to Base64...');
+                        const base64Images = await Promise.all(
+                            payload.images.map((img: string) => imageUrlToBase64(img))
+                        );
+                        payload = { ...payload, images: base64Images };
+                        console.log('[Background] Conversion complete');
+                    }
 
                     // Check if tab is discarded (unloaded by Chrome)
                     if (targetTab.discarded) {
@@ -354,21 +382,6 @@ Rules:
                         chrome.windows.update(targetTab.windowId, { focused: true });
                     }
                     sendResponse({ success: true, opened: false });
-                } else {
-                    console.log('[Background] No target tab found, creating new tab');
-                    const newTab = await chrome.tabs.create({
-                        url: 'http://localhost:5173'
-                    });
-
-                    const listener = (tabId: number, info: any) => {
-                        if (tabId === newTab.id && info.status === 'complete') {
-                            chrome.tabs.onUpdated.removeListener(listener);
-                            setTimeout(async () => {
-                                await injectAndSend(tabId, message.payload);
-                            }, 1500);
-                        }
-                    };
-                    chrome.tabs.onUpdated.addListener(listener);
                     sendResponse({ success: true, opened: true });
                 }
             } catch (error: any) {

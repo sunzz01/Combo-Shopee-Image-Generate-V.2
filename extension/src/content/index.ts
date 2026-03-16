@@ -11,6 +11,58 @@ chrome.runtime.onMessage.addListener((message: MessageType, _sender: chrome.runt
     if (message.type === 'SCAN_IMAGES') {
         const imageList: ScannedImage[] = [];
 
+        // --- PART 1: TEXT SCRAPING ---
+        let scrapedName = '';
+        let scrapedDesc = '';
+
+        // 1.1 Helper to find input by label/placeholder
+        const findInputByKeyword = (keywords: string[]): string => {
+            const inputs = Array.from(document.querySelectorAll('input[type="text"], textarea'));
+            for (const input of inputs) {
+                const el = input as HTMLInputElement | HTMLTextAreaElement;
+                const label = document.querySelector(`label[for="${el.id}"]`);
+                const labelText = label?.textContent || '';
+                const placeholder = el.getAttribute('placeholder') || '';
+
+                // Shopee specific: Check modelvalue attribute
+                const modelValue = el.getAttribute('modelvalue');
+
+                if (keywords.some(k => labelText.includes(k) || placeholder.includes(k))) {
+                    // Prioritize modelvalue if present (Shopee Vue component style)
+                    if (modelValue) return modelValue;
+                    return el.value;
+                }
+            }
+            return '';
+        };
+
+        // 1.2 Try finding via "Shopee Seller" style inputs first (Prioritize User Inputs)
+        scrapedName = findInputByKeyword(['ชื่อสินค้า', 'Product Name', 'ชื่อแบรนด์', 'ประเภทสินค้า']);
+        scrapedDesc = findInputByKeyword(['รายละเอียดสินค้า', 'Product Description', 'รายละเอียด']);
+
+        // 1.3 Fallback: Try standard e-commerce page structure
+        if (!scrapedName) {
+            // Common Product Title Selectors
+            const h1 = document.querySelector('h1') || document.querySelector('.product-title') || document.querySelector('.QA7i7S') /* Shopee Title Class */;
+            if (h1) scrapedName = h1.textContent?.trim() || '';
+        }
+
+        if (!scrapedDesc) {
+            // Common Description Selectors or Meta Tag
+            const metaDesc = document.querySelector('meta[name="description"]');
+            if (metaDesc) scrapedDesc = metaDesc.getAttribute('content') || '';
+
+            // Try Shopee/Lazada Description Containers
+            if (!scrapedDesc) {
+                const descContainer = document.querySelector('.product-detail') || document.querySelector('.IR3_1O') /* Shopee Desc */;
+                if (descContainer) scrapedDesc = descContainer.textContent?.trim() || '';
+            }
+        }
+
+        console.log('✅ Scraped Content:', { scrapedName, scrapedDesc });
+
+
+        // --- PART 2: IMAGE SCANNING ---
         // Helper: Clean and upscale image URLs
         const cleanImageUrl = (url: string) => {
             if (!url || typeof url !== 'string') return null;
@@ -91,7 +143,14 @@ chrome.runtime.onMessage.addListener((message: MessageType, _sender: chrome.runt
                 return !isTracker && !img.src.includes('data:image');
             });
 
-        sendResponse({ status: 'OK', images: finalImages });
+        sendResponse({
+            status: 'OK',
+            images: finalImages,
+            content: {
+                productName: scrapedName,
+                productDescription: scrapedDesc
+            }
+        });
     }
 
     if (message.type === 'FETCH_IMAGE_BASE64') {

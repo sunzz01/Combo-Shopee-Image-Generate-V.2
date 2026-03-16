@@ -103,6 +103,21 @@ const App: React.FC = () => {
   const [editingPrompt, setEditingPrompt] = useState<{ [key: string]: boolean }>({});
   const [promptInputs, setPromptInputs] = useState<{ [key: string]: string }>({});
 
+  // เพิ่ม state สำหรับเลือก Lifestyle สำหรับ Regenerate
+  const [selectedLifestyle, setSelectedLifestyle] = useState<{ [key: string]: ImageCategory }>({});
+
+  // Lifestyle options สำหรับ dropdown
+  const LIFESTYLE_OPTIONS = [
+    { id: ImageCategory.LIFESTYLE_A, name: 'Home (ในบ้าน)', desc: 'Indoor / Cozy setting' },
+    { id: ImageCategory.LIFESTYLE_B, name: 'Outdoor (กลางแจ้ง)', desc: 'Nature / Outside setting' },
+    { id: ImageCategory.LIFESTYLE_C, name: 'Professional (ออฟฟิศ)', desc: 'Office / Urban setting' },
+    { id: ImageCategory.LIFESTYLE_THAI_STREET_FOOD, name: 'Thai Street Food', desc: 'สตรีทฟู้ดไทย / รถเข็น' },
+    { id: ImageCategory.LIFESTYLE_THAI_MARKET, name: 'Thai Market', desc: 'ตลาดสดไทย / ตลาดนัด' },
+    { id: ImageCategory.LIFESTYLE_THAI_KITCHEN, name: 'Thai Kitchen', desc: 'ครัวไทย / ทำอาหารไทย' },
+    { id: ImageCategory.LIFESTYLE_ISAN_KITCHEN, name: 'Isan Kitchen', desc: 'ครัวอีสาน / ส้มตำ' },
+    { id: ImageCategory.LIFESTYLE_THAI_LOCAL_RESTAURANT, name: 'Thai Local Restaurant', desc: 'ร้านอาหารท้องถิ่นไทย' },
+  ];
+
   const { theme, toggleTheme } = useTheme(); // ใช้ hook สำหรับจัดการธีม
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -574,21 +589,32 @@ const App: React.FC = () => {
 
                     </div>
 
-                    <div className="space-y-5">
-                      <input
-                        type="text"
-                        placeholder="ระบุชื่อสินค้า (Optional)"
-                        className={`w-full px-6 py-5 ${theme === 'dark' ? 'bg-gray-700 text-white border-gray-600 focus:border-orange-500' : 'bg-slate-50 border-slate-100 focus:border-orange-500'} border-2 rounded-2xl focus:outline-none transition-all font-bold text-slate-700 shadow-inner`}
-                        value={productName}
-                        onChange={(e) => setProductName(e.target.value)}
-                      />
-                      <textarea
-                        rows={3}
-                        placeholder="สรุปจุดขาย หรือสิ่งที่ต้องการให้ AI เน้นเป็นพิเศษ..."
-                        className={`w-full px-6 py-5 ${theme === 'dark' ? 'bg-gray-700 text-white border-gray-600 focus:border-orange-500' : 'bg-slate-50 border-slate-100 focus:border-orange-500'} border-2 rounded-2xl focus:outline-none transition-all font-bold text-slate-700 shadow-inner resize-none`}
-                        value={productDesc}
-                        onChange={(e) => setProductDesc(e.target.value)}
-                      />
+                    <div className="space-y-6">
+                      <div>
+                        <label className={`block text-xs font-black ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'} mb-3 uppercase tracking-[0.15em]`}>
+                          ชื่อสินค้า
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="ระบุชื่อสินค้า (Optional)"
+                          className={`w-full px-6 py-5 ${theme === 'dark' ? 'bg-gray-700 text-white border-gray-600 focus:border-orange-500' : 'bg-slate-50 border-slate-100 focus:border-orange-500'} border-2 rounded-2xl focus:outline-none transition-all font-bold text-slate-700 shadow-inner`}
+                          value={productName}
+                          onChange={(e) => setProductName(e.target.value)}
+                        />
+                      </div>
+
+                      <div>
+                        <label className={`block text-xs font-black ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'} mb-3 uppercase tracking-[0.15em]`}>
+                          รายละเอียดสินค้า
+                        </label>
+                        <textarea
+                          rows={3}
+                          placeholder="สรุปจุดขาย หรือสิ่งที่ต้องการให้ AI เน้นเป็นพิเศษ..."
+                          className={`w-full px-6 py-5 ${theme === 'dark' ? 'bg-gray-700 text-white border-gray-600 focus:border-orange-500' : 'bg-slate-50 border-slate-100 focus:border-orange-500'} border-2 rounded-2xl focus:outline-none transition-all font-bold text-slate-700 shadow-inner resize-none`}
+                          value={productDesc}
+                          onChange={(e) => setProductDesc(e.target.value)}
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -674,7 +700,7 @@ const App: React.FC = () => {
                   </div>
                 )}
 
-                <div className="mt-12">
+                <div className="mt-24">
                   <button
                     onClick={handleScrape}
                     disabled={isAnalyzing}
@@ -897,6 +923,25 @@ const App: React.FC = () => {
                                     </div>
                                   )}
                                 </div>
+                                {/* Lifestyle Dropdown - แสดงเฉพาะ Lifestyle categories */}
+                                {catKey.startsWith('LIFESTYLE_') && (
+                                  <div className="mb-2">
+                                    <select
+                                      value={selectedLifestyle[catKey] || catKey}
+                                      onChange={(e) => setSelectedLifestyle(prev => ({
+                                        ...prev,
+                                        [catKey]: e.target.value as ImageCategory
+                                      }))}
+                                      className="w-full text-[10px] p-2 rounded-xl bg-white/20 text-white border border-white/30 backdrop-blur-md font-bold"
+                                    >
+                                      {LIFESTYLE_OPTIONS.map(opt => (
+                                        <option key={opt.id} value={opt.id} className="bg-slate-800 text-white">
+                                          {opt.name} - {opt.desc}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                )}
                                 <div className="flex gap-3">
                                   <button
                                     onClick={() => downloadSingleImage(img.url, meta.title)}
@@ -905,7 +950,11 @@ const App: React.FC = () => {
                                     <Download className="w-5 h-5" /> บันทึกภาพ
                                   </button>
                                   <button
-                                    onClick={() => regenerateImage(catKey as ImageCategory)}
+                                    onClick={() => regenerateImage(
+                                      catKey.startsWith('LIFESTYLE_')
+                                        ? (selectedLifestyle[catKey] || catKey) as ImageCategory
+                                        : catKey as ImageCategory
+                                    )}
                                     className="p-4 bg-blue-500 hover:bg-blue-600 text-white font-black rounded-2xl text-[12px] shadow-2xl flex items-center justify-center transition-all active:scale-95"
                                     title="Regenerate Image"
                                   >
@@ -961,8 +1010,29 @@ const App: React.FC = () => {
                                 {img.error.length > 50 ? `${img.error.substring(0, 50)}...` : img.error}
                               </p>
                             )}
+                            {/* Lifestyle Dropdown ใน Error state */}
+                            {catKey.startsWith('LIFESTYLE_') && (
+                              <select
+                                value={selectedLifestyle[catKey] || catKey}
+                                onChange={(e) => setSelectedLifestyle(prev => ({
+                                  ...prev,
+                                  [catKey]: e.target.value as ImageCategory
+                                }))}
+                                className={`w-4/5 text-[10px] p-2 rounded-xl ${theme === 'dark' ? 'bg-gray-700 text-white border-gray-600' : 'bg-white text-slate-800 border-slate-200'} border font-bold`}
+                              >
+                                {LIFESTYLE_OPTIONS.map(opt => (
+                                  <option key={opt.id} value={opt.id}>
+                                    {opt.name} - {opt.desc}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
                             <button
-                              onClick={() => regenerateImage(catKey as ImageCategory)}
+                              onClick={() => regenerateImage(
+                                catKey.startsWith('LIFESTYLE_')
+                                  ? (selectedLifestyle[catKey] || catKey) as ImageCategory
+                                  : catKey as ImageCategory
+                              )}
                               className="px-6 py-2 bg-blue-500 text-white text-[10px] font-black rounded-xl hover:bg-blue-600 transition-all flex items-center gap-2"
                             >
                               <RotateCcw className="w-4 h-4" /> สร้างภาพใหม่ ({(regenerationAttempts[catKey] || 0) + 1} ครั้ง)

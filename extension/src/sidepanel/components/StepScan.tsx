@@ -46,6 +46,11 @@ export function StepScan() {
 
                 if (response && response.images && response.images.length > 0) {
                     dispatch({ type: 'SET_SCANNED_IMAGES', payload: response.images });
+
+                    if (response.content) {
+                        dispatch({ type: 'SET_SCRAPED_CONTENT', payload: response.content });
+                    }
+
                     goToNextStep(); // Go to SELECT
                 } else {
                     alert('📸 ไม่พบรูปภาพสินค้าในหน้านี้... ลองเลื่อนหน้าเว็บลงมาให้รูปภาพโหลดขึ้นมา แล้วกดสแกนใหม่อีกครั้งครับ');

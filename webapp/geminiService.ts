@@ -47,7 +47,7 @@ export const analyzeProduct = async (productInfo: string, images?: string[]): Pr
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash-exp",
+      model: "gemini-2.0-flash",
       contents: { parts },
       config: {
         responseMimeType: "application/json",
@@ -135,7 +135,22 @@ export const generateProductImage = async (
       promptSuffix = `Lifestyle photography of the product in an outdoor nature setting (park, garden, or beach). Bright sunny day, organic textures, adventurous and fresh feel.`;
       break;
     case ImageCategory.LIFESTYLE_C:
-      promptSuffix = `Lifestyle photography of the product in a professional urban setting. Modern architecture, clean lines, corporate or city background, sophisticated lighting.`;
+      promptSuffix = `Lifestyle photography of the product in a professional urban setting. Modern architecture, clean lines, corporate or city background, sophisticated lighting. realistic, candid, unstaged, real usage, no studio setup, no luxury kitchen, no showroom, no stock photo look`;
+      break;
+    case ImageCategory.LIFESTYLE_THAI_STREET_FOOD:
+      promptSuffix = `Lifestyle photography of the product in a Thai street food setting. Street food stall, stainless steel cart, colorful ingredients, Thai signage, casual atmosphere, real usage scenario, natural daylight, vibrant yet authentic Thai street style. realistic, candid, unstaged, real usage, no studio setup, no luxury kitchen, no showroom, no stock photo look`;
+      break;
+    case ImageCategory.LIFESTYLE_THAI_MARKET:
+      promptSuffix = `Lifestyle photography of the product in a traditional Thai market. Fresh produce, local vendors, busy market atmosphere, plastic baskets, wet market environment, authentic Thai daily life, natural lighting, documentary-style realism. realistic, candid, unstaged, real usage, no studio setup, no luxury kitchen, no showroom, no stock photo look`;
+      break;
+    case ImageCategory.LIFESTYLE_THAI_KITCHEN:
+      promptSuffix = `Lifestyle photography of the product in a Thai kitchen. Cooking Thai food, herbs and spices, fish sauce bottles, chili, garlic, mortar and pestle, warm lighting, real home or restaurant kitchen environment. realistic, candid, unstaged, real usage, no studio setup, no luxury kitchen, no showroom, no stock photo look`;
+      break;
+    case ImageCategory.LIFESTYLE_ISAN_KITCHEN:
+      promptSuffix = `Lifestyle photography of the product in an Isan kitchen setting. Som tam preparation, papaya shredder, mortar and pestle, sticky rice baskets, local Thai-Isan atmosphere, rustic kitchen, real usage, natural ambient lighting. realistic, candid, unstaged, real usage, no studio setup, no luxury kitchen, no showroom, no stock photo look`;
+      break;
+    case ImageCategory.LIFESTYLE_THAI_LOCAL_RESTAURANT:
+      promptSuffix = `Lifestyle photography of the product in a local Thai restaurant. Small family-owned restaurant, simple interior, tables with Thai food dishes, daily business atmosphere, authentic local dining environment, warm realistic lighting. realistic, candid, unstaged, real usage, no studio setup, no luxury kitchen, no showroom, no stock photo look`;
       break;
     case ImageCategory.SIZE_CHART:
       promptSuffix = `A product size comparison shot. The product placed next to a common object like a smartphone or held in a human hand for scale. Clear visibility of dimensions.`;
@@ -179,11 +194,6 @@ export const generateProductImage = async (
           { text: prompt }
         ],
       },
-      config: {
-        imageConfig: {
-          aspectRatio: "1:1"
-        }
-      }
     });
 
     // Extract the generated image from parts

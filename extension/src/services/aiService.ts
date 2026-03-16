@@ -13,8 +13,52 @@ export const AI_MODELS: AIModel[] = [
         realModelName: 'dall-e-3'
     },
     {
+        id: 'gemini-2-5-pro',
+        name: 'Gemini 2.5 Pro',
+        version: 'Pro 2.5 Stable',
+        description: 'ตัวยอดนิยมสำหรับงานวิเคราะห์เอกสารและวิดีโอยาวๆ',
+        tags: ['COMPLEX TASK', 'LONG CONTEXT', 'STABLE'],
+        latency: '8-15s',
+        status: 'READY',
+        quote: '"Deep analysis for complex content."',
+        realModelName: 'gemini-1.5-pro'
+    },
+    {
+        id: 'gemini-2-5-flash',
+        name: 'Gemini 2.5 Flash',
+        version: 'Flash 2.5 Stable',
+        description: 'รุ่นที่คุ้มค่าที่สุด เร็วและฉลาดสมดุลกัน',
+        tags: ['BALANCED', 'FAST', 'SMART'],
+        latency: '400-800ms',
+        status: 'READY',
+        quote: '"Speed meets intelligence."',
+        realModelName: 'gemini-1.5-flash-001'
+    },
+    {
+        id: 'gemini-2-5-flash-lite',
+        name: 'Gemini 2.5 Flash Lite',
+        version: 'Flash 2.5 Lite',
+        description: 'ออกแบบมาเพื่อลด Latency ให้ต่ำที่สุด สำหรับงานเล็กๆ ที่มีปริมาณมาก',
+        tags: ['LOW LATENCY', 'HIGH VOLUME', 'TEXT'],
+        latency: '300-500ms',
+        status: 'READY',
+        quote: '"Ultra-low latency for high volume tasks."',
+        realModelName: 'gemini-1.5-flash-8b'
+    },
+    {
+        id: 'gemini-2-5-flash-image',
+        name: 'Gemini 2.5 Flash Image',
+        version: 'Flash 2.5 Image',
+        description: 'ปรับแต่งมาเพื่อการทำงานกับรูปภาพโดยเฉพาะ (Image-first)',
+        tags: ['IMAGE FIRST', 'VISION', 'PRECISE'],
+        latency: '500-900ms',
+        status: 'READY',
+        quote: '"Optimized for visual understanding."',
+        realModelName: 'gemini-1.5-pro'
+    },
+    {
         id: 'gemini-flash-lite',
-        name: 'Gemini Flash Lite',
+        name: 'Gemini Flash Lite (Legacy)',
         version: 'Flash 1.5 Lite',
         description: 'เน้นความเร็วสูงสุด สำหรับงาน Chat และสรุปความ',
         tags: ['TEXT', 'VISION', 'MULTILINGUAL'],
@@ -22,28 +66,6 @@ export const AI_MODELS: AIModel[] = [
         status: 'READY',
         quote: '"Connection established. How can I help you today?"',
         realModelName: 'gemini-1.5-flash'
-    },
-    {
-        id: 'gemini-2-5-flash-lite',
-        name: 'Gemini 2.5 Flash Lite',
-        version: 'Flash 2.5 Next-Gen',
-        description: 'โมเดลรุ่นใหม่ล่าสุดที่เร็วและฉลาดกว่าเดิม รองรับมัลติโมดอลเต็มรูปแบบ',
-        tags: ['NEXT-GEN', 'FAST', 'INTELLIGENT'],
-        latency: '450ms',
-        status: 'READY',
-        quote: '"The next generation of efficiency is here."',
-        realModelName: 'gemini-2.0-flash-lite-preview-02-05'
-    },
-    {
-        id: 'gemini-2-5-flash-image',
-        name: 'Gemini 2.5 Flash Image',
-        version: 'Flash 2.5 Gen',
-        description: 'เน้นความเร็วสูงสุดในการวิเคราะห์และสร้างภาพระดับโปร 1K/2K',
-        tags: ['IMAGE FOCUS', 'NEXT-GEN', 'ULTRA FAST'],
-        latency: '500-900ms',
-        status: 'READY',
-        quote: '"Fast as flash, precise as pro."',
-        realModelName: 'gemini-2.0-flash-exp'
     },
     {
         id: 'gemini-3-pro-image',
@@ -54,7 +76,7 @@ export const AI_MODELS: AIModel[] = [
         latency: '15-30s',
         status: 'READY',
         quote: '"The future of visual creativity is here."',
-        realModelName: 'gemini-2.0-pro-exp-02-05'
+        realModelName: 'gemini-1.5-pro'
     },
     {
         id: 'imagen-3',
@@ -206,7 +228,7 @@ export const analyzeProduct = async (
         return analyzeWithThirdParty(apiKey, customUrl || 'https://api.phaya.io/api/v1/chat/completions', imageUrl, base64Override, selectedModelConfig.realModelName);
     }
 
-    const modelsToTry = [selectedModelConfig.realModelName, "gemini-1.5-flash", "gemini-1.0-pro-vision-latest"];
+    const modelsToTry = [selectedModelConfig.realModelName, "gemini-1.5-flash", "gemini-1.5-pro"];
     let lastError: any = null;
 
     for (const modelName of modelsToTry) {
