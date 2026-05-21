@@ -11,11 +11,10 @@ services:
     volumes:
       - .:/app
       - /app/node_modules
+    env_file:
+      - .env
     environment:
       - WATCHPACK_POLLING=true # Use polling for file watching (better for Windows/Docker)
       - CHOKIDAR_USEPOLLING=true # Ensure Vite picks up changes
-      - VITE_GEMINI_API_KEY=AIzaSyB7_BtQ3Q_-e1dwzE_53Qy0QZZ2amS4r8Y
-      - GEMINI_API_KEY=AIzaSyB7_BtQ3Q_-e1dwzE_53Qy0QZZ2amS4r8Y
-      - VITE_REMOVE_BG_API_KEY=QXnQtJFLb4JJ2uM74xnpR17N
     stdin_open: true # Support interactive mode
     tty: true

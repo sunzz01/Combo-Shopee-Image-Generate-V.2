@@ -2,7 +2,7 @@ import { analyzeProduct, testApiKey } from '../services/aiService';
 import { removeBackground } from '../services/removeBgService';
 import { callPhayaImageGen, pollPhayaJobStatus, callPhayaStandardImageGen, callDalleImageGen, callGoogleImagenGen } from '../services/imageGenService';
 
-console.log('Gimi Multi-X Background Service Worker Running');
+// Background Service Worker
 
 // Enable opening side panel when clicking the extension icon
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
@@ -272,12 +272,10 @@ Rules:
         return true;
     }
 
-    if (message.type === 'SEND_TO_SHOPEE_MASTER') {
+    if (message.type === 'SEND_TO_PICSELLER') {
         (async () => {
             try {
-                console.log('[Background] Received SEND_TO_SHOPEE_MASTER request');
                 const tabs = await chrome.tabs.query({});
-                console.log('[Background] All tabs:', tabs.map(t => ({ id: t.id, url: t.url, title: t.title, discarded: t.discarded })));
 
                 // Priority 1: Find by localhost URL (most reliable)
                 let targetTab = tabs.find(t =>
@@ -289,16 +287,15 @@ Rules:
                     t.url?.includes('127.0.0.1:3001')
                 );
 
-                // Priority 2: Find by specific title (SHOPEE MASTER app title)
+                // Priority 2: Find by specific title (PicSeller app title)
                 if (!targetTab) {
                     targetTab = tabs.find(t =>
-                        t.title?.includes('SHOPEE MASTER') ||
-                        t.title?.includes('Shopee AI Image Master') ||
-                        t.title?.includes('Shopee Master')
+                        t.title?.includes('PICSELLER') ||
+                        t.title?.includes('PicSeller')
                     );
                 }
 
-                console.log('[Background] Target tab found:', targetTab);
+
 
                 // Helper: Convert image URL to Base64 via fetch in background
                 const imageUrlToBase64 = async (url: string): Promise<string> => {
@@ -314,38 +311,47 @@ Rules:
                 };
 
                 const injectAndSend = async (tabId: number, payload: any) => {
-                    console.log('[Background] Injecting script into tab:', tabId);
-                    await chrome.scripting.executeScript({
-                        target: { tabId },
-                        world: 'MAIN',
-                        func: (data: any) => {
-                            console.log('[Injected] Sending data to page:', data);
-                            window.postMessage({
-                                type: 'SHOPEE_X_DATA_TRANSFER',
-                                detail: data
-                            }, '*');
-                        },
-                        args: [payload]
-                    });
-                    console.log('[Background] Script injected successfully');
+                    console.log('[Background] Sending data to content script in tab:', tabId);
+                    // ใช้ ISOLATED world + content script relay แทน MAIN world injection
+                    // เพื่อหลีกเลี่ยงการถูกตรวจจับโดย Anti-Bot ที่ monitor Global Scope
+                    try {
+                        await chrome.tabs.sendMessage(tabId, {
+                            type: 'SEND_TO_PICSELLER',
+                            payload: payload
+                        });
+                    } catch (err) {
+                        // Fallback: inject via ISOLATED world (ยังคงปลอดภัยกว่า MAIN)
+                        await chrome.scripting.executeScript({
+                            target: { tabId },
+                            world: 'ISOLATED',
+                            func: (data: any) => {
+                                window.postMessage({
+                                    type: '__xfer_msg',
+                                    detail: data
+                                }, window.location.origin);
+                            },
+                            args: [payload]
+                        });
+                    }
+
                 };
 
                 if (targetTab?.id) {
                     let payload = message.payload;
 
-                    // Convert image URLs to Base64 before sending
+                    // SECURITY: Sequential fetch with randomized delay (anti-burst pattern)
                     if (payload.images && Array.isArray(payload.images)) {
-                        console.log('[Background] Converting', payload.images.length, 'images to Base64...');
-                        const base64Images = await Promise.all(
-                            payload.images.map((img: string) => imageUrlToBase64(img))
-                        );
+                        const base64Images: string[] = [];
+                        for (const img of payload.images) {
+                            base64Images.push(await imageUrlToBase64(img));
+                            // Randomized delay เลียนแบบการเปิดดูทีละรูป
+                            await new Promise(r => setTimeout(r, 600 + Math.random() * 1200));
+                        }
                         payload = { ...payload, images: base64Images };
-                        console.log('[Background] Conversion complete');
                     }
 
                     // Check if tab is discarded (unloaded by Chrome)
                     if (targetTab.discarded) {
-                        console.log('[Background] Tab is discarded, reloading it first...');
 
                         // Activate tab to reload it
                         await chrome.tabs.update(targetTab.id, { active: true });
@@ -372,7 +378,7 @@ Rules:
                         };
 
                         await waitForLoad(targetTab.id);
-                        console.log('[Background] Tab reloaded, now injecting script...');
+
                         await new Promise(r => setTimeout(r, 500)); // Extra delay for React to mount
                     }
 
@@ -382,6 +388,43 @@ Rules:
                         chrome.windows.update(targetTab.windowId, { focused: true });
                     }
                     sendResponse({ success: true, opened: false });
+                } else {
+                    // ไม่พบ tab ของ Webapp → เปิด tab ใหม่แล้วส่งข้อมูลหลัง page load
+                    let payload = message.payload;
+                    if (payload.images && Array.isArray(payload.images)) {
+                        const base64Images: string[] = [];
+                        for (const img of payload.images) {
+                            base64Images.push(await imageUrlToBase64(img));
+                            await new Promise(r => setTimeout(r, 600 + Math.random() * 1200));
+                        }
+                        payload = { ...payload, images: base64Images };
+                    }
+
+                    const newTab = await chrome.tabs.create({ url: 'http://localhost:8081/', active: true });
+
+                    // รอให้ page load เสร็จ
+                    const waitForNewTab = (tabId: number): Promise<void> => {
+                        return new Promise((resolve) => {
+                            const listener = (updatedTabId: number, info: any) => {
+                                if (updatedTabId === tabId && info.status === 'complete') {
+                                    chrome.tabs.onUpdated.removeListener(listener);
+                                    resolve();
+                                }
+                            };
+                            chrome.tabs.onUpdated.addListener(listener);
+                            setTimeout(() => {
+                                chrome.tabs.onUpdated.removeListener(listener);
+                                resolve();
+                            }, 8000);
+                        });
+                    };
+
+                    if (newTab.id) {
+                        await waitForNewTab(newTab.id);
+                        await new Promise(r => setTimeout(r, 1000)); // Wait for React to mount
+                        await injectAndSend(newTab.id, payload);
+                    }
+
                     sendResponse({ success: true, opened: true });
                 }
             } catch (error: any) {

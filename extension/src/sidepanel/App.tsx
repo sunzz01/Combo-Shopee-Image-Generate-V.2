@@ -7,12 +7,19 @@ import { StepExport } from './components/StepExport';
 import { Settings } from './components/Settings';
 import { useAppFlow } from './hooks/useFlowStore';
 import { useState } from 'react';
-import { Settings as SettingsIcon, Package, Target, Wand2, Download, Zap, MessageSquare } from 'lucide-react';
+import { Settings as SettingsIcon, Package, Target, Wand2, Download, Zap, MessageSquare, RotateCcw } from 'lucide-react';
 
 export default function App() {
   const { state } = useAppFlow();
   const { step } = state;
   const [showSettings, setShowSettings] = useState(false);
+
+  // ฟังก์ชัน Refresh - ล้างข้อมูลและ reload
+  const handleRefresh = () => {
+    if (confirm('ต้องการรีเฟรชและล้างข้อมูลทั้งหมดใช่หรือไม่?')) {
+      window.location.reload();
+    }
+  };
 
   const renderStep = () => {
     if (showSettings) return <Settings onClose={() => setShowSettings(false)} />;
@@ -52,12 +59,23 @@ export default function App() {
             </h1>
           </div>
         </div>
-        <button
-          onClick={() => setShowSettings(!showSettings)}
-          className={`p-2 rounded-xl transition-all ${showSettings ? 'bg-violet-100 text-violet-600' : 'text-slate-400 hover:bg-slate-100'}`}
-        >
-          <SettingsIcon className="w-5 h-5" />
-        </button>
+        <div className="flex items-center gap-1">
+          {/* Refresh Button */}
+          <button
+            onClick={handleRefresh}
+            className="p-2 rounded-xl text-slate-400 hover:bg-blue-50 hover:text-blue-600 transition-all"
+            title="รีเฟรช"
+          >
+            <RotateCcw className="w-5 h-5" />
+          </button>
+          {/* Settings Button */}
+          <button
+            onClick={() => setShowSettings(!showSettings)}
+            className={`p-2 rounded-xl transition-all ${showSettings ? 'bg-violet-100 text-violet-600' : 'text-slate-400 hover:bg-slate-100'}`}
+          >
+            <SettingsIcon className="w-5 h-5" />
+          </button>
+        </div>
       </header>
 
       {/* Stepper Nav */}

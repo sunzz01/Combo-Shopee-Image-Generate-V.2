@@ -41,7 +41,7 @@ export type MessageType =
     | { type: 'TEST_API_KEY'; apiKey: string }
     | { type: 'REMOVE_BACKGROUND'; apiKey: string; imageUrl: string }
     | {
-        type: 'SEND_TO_SHOPEE_MASTER';
+        type: 'SEND_TO_PICSELLER';
         payload: {
             productUrl: string;
             productName: string;

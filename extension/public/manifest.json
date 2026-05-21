@@ -12,6 +12,7 @@
     "permissions": [
         "sidePanel",
         "activeTab",
+        "tabs",
         "scripting",
         "storage",
         "identity"
@@ -37,13 +38,21 @@
     "content_scripts": [
         {
             "matches": [
-                "<all_urls>",
+                "*://*.shopee.co.th/*",
+                "*://*.shopee.com/*",
+                "*://*.shopee.sg/*",
+                "*://*.shopee.com.my/*",
+                "*://seller.shopee.co.th/*",
+                "*://*.lazada.co.th/*",
+                "*://*.lazada.com/*",
+                "*://*.tiktok.com/*",
                 "http://localhost/*",
                 "http://127.0.0.1/*"
             ],
             "js": [
                 "src/content/index.js"
-            ]
+            ],
+            "run_at": "document_idle"
         }
     ],
     "action": {

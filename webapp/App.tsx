@@ -17,6 +17,12 @@ import {
   FileArchive,
   Search,
   Eye,
+  EyeOff,
+  Settings,
+  LogOut,
+  User,
+  Lock,
+  Mail,
   Info,
   ArrowRightCircle,
   ShoppingBag,
@@ -25,79 +31,312 @@ import {
   Moon,
   Sun, // เพิ่มไอคอนสำหรับธีม
   RotateCcw,
-  Scissors
+  Scissors,
+  AlignLeft,
+  Wand2, // เพิ่ม icon สำหรับปุ่มสรุปข้อมูล
+  ChevronUp,
+  ChevronDown,
+  Edit2
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { ImageCategory, IMAGE_CATEGORIES_METADATA, ProductData, GeneratedImage } from './types';
-import { analyzeProduct, generateProductImage } from './geminiService';
+import { analyzeProduct, generateProductImage, summarizeProductDescription, getApiKeys } from './geminiService';
 import { useTheme } from './src/contexts/ThemeContext'; // นำเข้า hook สำหรับจัดการธีม
+import { useNotification } from './src/contexts/NotificationContext';
+import NotificationSystem from './src/components/NotificationSystem';
+import { useAuth } from './src/contexts/AuthContext';
+import { saveToDB, loadFromDB } from './src/utils/storage'; // Persistence
+import { ImageEditorModal } from './src/components/ImageEditorModal';
 
 const STYLES = [
   {
     id: 'alibaba',
     name: 'Alibaba Style',
+    emoji: '🏭',
+    color: 'text-yellow-600 dark:text-yellow-500', // Gold/Industrial
     desc: 'B2B focus, bold design, verified supplier badges, industrial trust',
     promptTemplate: 'Alibaba B2B style: bold badges (Verified Supplier), urgent colors, professional/industrial context, trust-focused.'
   },
   {
     id: 'aliexpress',
     name: 'AliExpress Style',
+    emoji: '🛒',
+    color: 'text-red-500', // AliExpress Red
     desc: 'Global marketplace, clean premium look, high-res angles, free shipping icons',
     promptTemplate: 'AliExpress global style: white background, 360° views, texture close-ups, clean premium aesthetic.'
   },
   {
     id: 'etsy',
     name: 'Etsy Style',
+    emoji: '🌸',
+    color: 'text-orange-600 dark:text-orange-500', // Etsy Orange
     desc: 'Artisanal & rustic, natural textures, handmade quality, emotional connection',
     promptTemplate: 'Etsy artisan style: warm natural textures, handmade aesthetic, storytelling, emotional connection.'
   },
   {
     id: 'minimalist',
     name: 'Minimalist',
+    emoji: '⚪',
+    color: 'text-slate-800 dark:text-gray-100', // Apple Black/White
     desc: 'Apple-like aesthetic, extensive white space, focus on form and design',
     promptTemplate: 'Minimalist premium style: maximum white space, geometric composition, product as hero, no clutter.'
   },
   {
     id: '1688',
     name: '1688 Style',
+    emoji: '📦',
+    color: 'text-orange-700 dark:text-orange-600', // 1688 Orange/Red
     desc: 'Wholesale bulk imagery, factory-direct look, price tags and MOQ focus',
     promptTemplate: '1688 wholesale style: shows bulk quantity, large price tags, factory-direct, info-dense B2B focus.'
   },
   {
     id: 'taobao',
     name: 'Taobao Style',
+    emoji: '🛍️',
+    color: 'text-orange-500', // Taobao Orange
     desc: 'Comprehensive info-graphics, colorful backgrounds, multiple angles in one',
     promptTemplate: 'Taobao comprehensive style: colorful, multiple angles in one image, detailed specs graphics, lively.'
   },
   {
     id: 'pinduoduo',
     name: 'Pinduoduo Style',
+    emoji: '🔥',
+    color: 'text-red-600', // Pinduoduo Red
     desc: 'Urgent group-buy design, vibrant colors, dramatic price labels, countdowns',
     promptTemplate: 'Pinduoduo group-buy style: vibrant colors, huge discount text, countdown timer, urgency-focused.'
   },
   {
     id: 'xianyu',
     name: 'Xianyu Style',
+    emoji: '♻️',
+    color: 'text-yellow-500', // Xianyu Yellow
     desc: 'Second-hand/C2C raw photography, honest real-life settings, ambient light',
     promptTemplate: 'Xianyu second-hand style: raw unedited photo, shows flaws, simple home background, authentic C2C.'
+  },
+  {
+    id: 'shopee',
+    name: 'Shopee Style',
+    emoji: '🧡',
+    color: 'text-orange-500', // Shopee Orange
+    desc: 'Energetic Southeast Asian marketplace, flash sale bursts, vibrant orange, high contrast',
+    promptTemplate: 'Shopee style: vibrant orange gradient, flash sale badges, price drops, sold counts, energetic.'
+  },
+  {
+    id: 'lazada',
+    name: 'Lazada Style',
+    emoji: '💜',
+    color: 'text-indigo-600 dark:text-indigo-400', // Lazada Blue/Purple
+    desc: 'Dynamic action-oriented layout, electric blue/purple, LazMall credibility, massive price labels',
+    promptTemplate: 'Lazada style: blue/purple gradient, dynamic angular frames, authentic seals, massive sale prices.'
+  },
+  {
+    id: 'shopee-live',
+    name: 'Shopee Live',
+    emoji: '🔴',
+    color: 'text-orange-500',
+    desc: 'Live streaming aesthetic, broadcast framing, floating chat, real-time urgency',
+    promptTemplate: 'Shopee Live style: live pulse icon, viewer count, pink-purple gradient, floating comments.'
+  },
+  {
+    id: 'lazada-flagship',
+    name: 'Lazada Flagship',
+    emoji: '👑',
+    color: 'text-indigo-700 dark:text-indigo-400',
+    desc: 'Premium official store layout, clean branding, sophisticated grid, high trust',
+    promptTemplate: 'Lazada Flagship style: official store badge, hero shots, premium clean aesthetic, brand registry focus.'
+  },
+  {
+    id: 'shopee-mall',
+    name: 'Shopee Mall',
+    emoji: '🛡️',
+    color: 'text-red-600', // Shopee Mall Red
+    desc: 'Brand-focused premium layout, gold Mall badges, authentic guarantee, refined spacing',
+    promptTemplate: 'Shopee Mall style: gold badges, refined layout, brand-first hierarchy, high trust indicators.'
+  },
+  {
+    id: 'regional-festival',
+    name: 'Regional Festival',
+    emoji: '🎆',
+    color: 'text-rose-500',
+    desc: 'Festive explosive layout, cultural elements (CNY, Raya, Songkran), celebration-focused',
+    promptTemplate: 'Regional Festival style: cultural festive themes, explosive sale tags, occasion-specific colors.'
+  },
+  {
+    id: 'budget-friendly',
+    name: 'Budget Friendly',
+    emoji: '💸',
+    color: 'text-green-600 dark:text-green-500',
+    desc: 'Value-focused, price comparison dominant, savings-first hierarchy, bold highlights',
+    promptTemplate: 'Budget style: yellow highlights, massive price text, savings-first, worth-it focus.'
+  },
+  {
+    id: 'alibaba02',
+    name: 'Alibaba B2B Industrial',
+    emoji: '🏗️',
+    color: 'text-yellow-600 dark:text-yellow-500',
+    desc: 'B2B focus, gold badges, industrial context, factory settings',
+    promptTemplate: 'Alibaba V.2: Gold Supplier badge, factory context, industrial aesthetic, authority trust.'
+  },
+  {
+    id: 'aliexpress02',
+    name: 'AliExpress Global (V.2)',
+    emoji: '🌎',
+    color: 'text-red-500',
+    desc: 'Global marketplace, hero shots, social proof, risk-free focus',
+    promptTemplate: 'AliExpress V.2: Hero shot, free shipping ribbon, warranty badges, social proof counter.'
+  },
+  {
+    id: 'etsy02',
+    name: 'Etsy Artisanal (V.2)',
+    emoji: '🧶',
+    color: 'text-orange-600 dark:text-orange-500',
+    desc: 'Warm artisanal vibe, handmade connection, natural textures',
+    promptTemplate: 'Etsy V.2: Artisan hands holding product, warm natural lighting, workshop tools in focus.'
+  },
+  {
+    id: 'minimalist02',
+    name: 'Minimalist Apple (V.2)',
+    emoji: '💻',
+    color: 'text-slate-800 dark:text-gray-100',
+    desc: 'High-end minimalist aesthetic, negative space, premium lighting',
+    promptTemplate: 'Minimalist V.2: Apple-inspired, 70% negative space, directional lighting, premium material highlights.'
+  },
+  {
+    id: '168802',
+    name: '1688 Wholesale (V.2)',
+    emoji: '🏭',
+    color: 'text-orange-700 dark:text-orange-600',
+    desc: 'Wholesale efficiency, price focused, grid variations, industrial trust',
+    promptTemplate: '1688 V.2: 3x3 grid variations, red price tags, MOQ bold, warehouse context.'
+  },
+  {
+    id: 'taobao02',
+    name: 'Taobao Showcase (V.2)',
+    emoji: '📱',
+    color: 'text-orange-500',
+    desc: 'Information-rich collage, KOL endorsement, mobile optimized',
+    promptTemplate: 'Taobao V.2: Collage layout, feature icons, KOL quote, energetic mobile style.'
+  },
+  {
+    id: 'pinduoduo02',
+    name: 'Pinduoduo Urgency (V.2)',
+    desc: 'Gamified urgency, flash sale style, massive price alerts',
+    promptTemplate: 'Pinduoduo V.2: Huge price drop text, countdown timers, social validation pulses.'
+  },
+  {
+    id: 'xianyu02',
+    name: 'Xianyu C2C (V.2)',
+    desc: 'Authentic second-hand style, honest wear marks, real home setting',
+    promptTemplate: 'Xianyu V.2: Natural home setting, honest flaw callouts, smartphone photo aesthetic.'
   }
 ];
 
+// โมเดล Gemini ที่ใช้สำหรับสร้างภาพ
+const GEMINI_IMAGE_MODELS = [
+  {
+    id: 'gemini-3.1-flash-image-preview',
+    name: 'Gemini 3.1 Flash Image Preview',
+    badge: '🔥 NEW',
+    badgeColor: 'bg-gradient-to-r from-red-500 to-orange-400',
+    desc: 'Gen ข้อความภาษาไทยไม่เพี้ยน ล่าสุด!',
+    borderColor: 'border-orange-500',
+    glowColor: 'shadow-orange-500/40',
+    textColor: 'text-orange-400',
+    iconBg: 'from-red-500 to-orange-400',
+  },
+  {
+    id: 'gemini-2.5-flash-image',
+    name: 'Gemini 2.5 Flash Image',
+    badge: 'Default',
+    badgeColor: 'bg-gray-600',
+    desc: 'รุ่นเดิม ภาพสวย ครีเอทีฟสูง',
+    borderColor: 'border-blue-500',
+    glowColor: 'shadow-blue-500/40',
+    textColor: 'text-blue-400',
+    iconBg: 'from-blue-500 to-cyan-400',
+  },
+  {
+    id: 'gemini-3-pro-image-preview',
+    name: 'Gemini 3 Pro Image Preview',
+    badge: 'PRO',
+    badgeColor: 'bg-gradient-to-r from-purple-600 to-violet-500',
+    desc: 'SOTA Image Gen คุณภาพสูงสุด (Paid)',
+    borderColor: 'border-purple-500',
+    glowColor: 'shadow-purple-500/40',
+    textColor: 'text-purple-400',
+    iconBg: 'from-purple-600 to-violet-500',
+  },
+  {
+    id: 'gemini-3-flash-preview',
+    name: 'Gemini 3 Flash Preview',
+    badge: 'Fast',
+    badgeColor: 'bg-gradient-to-r from-teal-500 to-green-400',
+    desc: 'เร็ว เบา เหมาะกับงาน Text + Image',
+    borderColor: 'border-teal-500',
+    glowColor: 'shadow-teal-500/40',
+    textColor: 'text-teal-400',
+    iconBg: 'from-teal-500 to-green-400',
+  },
+];
+
+// Aspect Ratio options
+const ASPECT_RATIOS = [
+  { id: '1:1', label: '1:1', name: 'Square', icon: '⬛', desc: 'Shopee/Lazada Product' },
+  { id: '4:5', label: '4:5', name: 'Portrait', icon: '📱', desc: 'Instagram Feed' },
+  { id: '9:16', label: '9:16', name: 'Story', icon: '📲', desc: 'TikTok / Shopee Live' },
+  { id: '16:9', label: '16:9', name: 'Landscape', icon: '🖥️', desc: 'Banner / YouTube' },
+  { id: '3:4', label: '3:4', name: 'Classic', icon: '🖼️', desc: 'Pinterest / Poster' },
+];
+
 const App: React.FC = () => {
+  const { addNotification, notifications, removeNotification } = useNotification();
+  const { user, login, register, loginWithSocial, logout, deductCredit, addCredits, isLoading: authLoading } = useAuth();
+
+  const [showSettings, setShowSettings] = useState<boolean>(false);
+  const [apiKeys, setApiKeys] = useState<string[]>(() => {
+    const keys = getApiKeys();
+    return keys.length > 0 ? keys : [''];
+  });
+  const [keyVisibility, setKeyVisibility] = useState<boolean[]>(() => {
+    const keys = getApiKeys();
+    return keys.length > 0 ? new Array(keys.length).fill(false) : [false];
+  });
+  const [removeBgKey, setRemoveBgKey] = useState<string>(() => {
+    return localStorage.getItem('remove_bg_api_key') || '';
+  });
+  const [showRemoveBgKey, setShowRemoveBgKey] = useState<boolean>(false);
+
+  // States สำหรับ Authentication UI
+  const [authTab, setAuthTab] = useState<'login' | 'register'>('login');
+  const [authEmail, setAuthEmail] = useState<string>('');
+  const [authPassword, setAuthPassword] = useState<string>('');
+  const [authName, setAuthName] = useState<string>('');
+  const [isSubmittingAuth, setIsSubmittingAuth] = useState<boolean>(false);
+  const [showProfileDropdown, setShowProfileDropdown] = useState<boolean>(false);
+
   const [productUrl, setProductUrl] = useState<string>('');
   const [productName, setProductName] = useState<string>('');
   const [productDesc, setProductDesc] = useState<string>('');
+  const [summaryLength, setSummaryLength] = useState<'short' | 'medium' | 'long'>('medium');
+  const [isSavingToFolder, setIsSavingToFolder] = useState(false);
   const [selectedStyle, setSelectedStyle] = useState<string>('aliexpress');
+  const [selectedImageModel, setSelectedImageModel] = useState<string>('gemini-3.1-flash-image-preview'); // โมเดลสำหรับสร้างภาพ
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [isScrapingOnly, setIsScrapingOnly] = useState<boolean>(false);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [scrapedImages, setScrapedImages] = useState<string[]>([]);
+  const [originalScrapedImages, setOriginalScrapedImages] = useState<string[]>([]); // Backup for undo
   const [localImages, setLocalImages] = useState<string[]>([]);
+  const [originalLocalImages, setOriginalLocalImages] = useState<string[]>([]); // Backup for undo
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [regenerationAttempts, setRegenerationAttempts] = useState<{ [key: string]: number }>({});
   const [step, setStep] = useState<number>(1);
   const [isZipping, setIsZipping] = useState<boolean>(false);
   const [scrapeError, setScrapeError] = useState<string | null>(null);
+  const [isRestoring, setIsRestoring] = useState<boolean>(true); // Persistent state loading flag
+
+  // State สำหรับเปิดปิด Modal Canva-like
+  const [editingImageParams, setEditingImageParams] = useState<{ isScraped: boolean; index: number; url: string } | null>(null);
 
   // เพิ่ม state สำหรับจัดการการแก้ไข prompt
   const [editingPrompt, setEditingPrompt] = useState<{ [key: string]: boolean }>({});
@@ -105,6 +344,31 @@ const App: React.FC = () => {
 
   // เพิ่ม state สำหรับเลือก Lifestyle สำหรับ Regenerate
   const [selectedLifestyle, setSelectedLifestyle] = useState<{ [key: string]: ImageCategory }>({});
+
+  // เพิ่ม state สำหรับเลือก Social Proof Variant สำหรับ Regenerate
+  const [selectedSocialProof, setSelectedSocialProof] = useState<{ [key: string]: string }>({});
+
+  // เพิ่ม state สำหรับเลือกหมวดหมู่ที่ต้องการ generate
+  const [selectedCategories, setSelectedCategories] = useState<Set<ImageCategory>>(new Set(Object.keys(IMAGE_CATEGORIES_METADATA) as ImageCategory[]));
+  const [isSummarizing, setIsSummarizing] = useState(false); // New state for summarization loading
+  const [selectedAspectRatio, setSelectedAspectRatio] = useState<string>('1:1'); // Global aspect ratio
+  const [imageAspectRatios, setImageAspectRatios] = useState<{ [key: string]: string }>({}); // Per-image ratio override
+
+  // เพิ่ม state สำหรับ Tutorial Step Prompts (4 ช่อง)
+  const DEFAULT_TUTORIAL_STEPS = [
+    "ขั้นตอนที่ 1: แกะกล่อง/เปิดใช้งาน (Unboxing/Prepare)",
+    "ขั้นตอนที่ 2: เตรียมอุปกรณ์/ติดตั้ง (Setup/Install)",
+    "ขั้นตอนที่ 3: เริ่มใช้งานจริง (Usage)",
+    "ขั้นตอนที่ 4: ผลลัพธ์สำเร็จ (Result)"
+  ];
+  const [tutorialStepPrompts, setTutorialStepPrompts] = useState<string[]>(DEFAULT_TUTORIAL_STEPS);
+  const [showTutorialConfig, setShowTutorialConfig] = useState<boolean>(false);
+
+  // เพิ่ม state สำหรับ Preview Image
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+
+  // เพิ่ม state สำหรับเลือก Style เฉพาะของ Cover Image
+  const [selectedCoverStyle, setSelectedCoverStyle] = useState<string | null>(null);
 
   // Lifestyle options สำหรับ dropdown
   const LIFESTYLE_OPTIONS = [
@@ -118,6 +382,14 @@ const App: React.FC = () => {
     { id: ImageCategory.LIFESTYLE_THAI_LOCAL_RESTAURANT, name: 'Thai Local Restaurant', desc: 'ร้านอาหารท้องถิ่นไทย' },
   ];
 
+  // Social Proof options สำหรับ dropdown
+  const SOCIAL_PROOF_OPTIONS = [
+    { id: 'unboxing-moment', name: 'Unboxing Moment', desc: 'แกะกล่องโชว์สินค้า' },
+    { id: 'just-arrived', name: 'Just Arrived', desc: 'สินค้าเพิ่งส่งถึงบ้าน' },
+    { id: 'happy-customer', name: 'Happy Customer', desc: 'ลูกค้าถือสินค้าด้วยความสุข' },
+    { id: 'in-use-lifestyle', name: 'In-use Lifestyle', desc: 'การใช้งานจริงในชีวิตประจำวัน' },
+  ];
+
   const { theme, toggleTheme } = useTheme(); // ใช้ hook สำหรับจัดการธีม
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -125,7 +397,7 @@ const App: React.FC = () => {
   // สื่อสารกับ Extension
   useEffect(() => {
     const handleExtensionData = (event: any) => {
-      console.log("=== SHOPEE MASTER: Received data from extension ===");
+      console.log("=== PICSELLER: Received data from extension ===");
       console.log("Full event.detail:", event.detail);
       console.log("productUrl:", event.detail?.productUrl);
       console.log("productName:", event.detail?.productName);
@@ -135,6 +407,17 @@ const App: React.FC = () => {
 
       const { productUrl, productName, productDesc, images } = event.detail || {};
 
+      // ล้างข้อมูลเก่าทั้งหมดก่อนรับข้อมูลใหม่
+      setLocalImages([]);
+      setOriginalLocalImages([]);
+      setScrapedImages([]);
+      setOriginalScrapedImages([]);
+      setGeneratedImages([]);
+      setProductUrl('');
+      setProductName('');
+      setProductDesc('');
+
+      // ตั้งค่าข้อมูลใหม่
       if (productUrl) {
         console.log("Setting productUrl:", productUrl);
         setProductUrl(productUrl);
@@ -150,6 +433,7 @@ const App: React.FC = () => {
       if (images && Array.isArray(images) && images.length > 0) {
         console.log("Setting scrapedImages:", images.length, "images");
         setScrapedImages(images);
+        setOriginalScrapedImages(images);
       } else {
         console.warn("No images received or images array is empty");
       }
@@ -158,22 +442,173 @@ const App: React.FC = () => {
       alert(`รับข้อมูลจาก Gimi Shopee X เรียบร้อยแล้ว!\n\nชื่อสินค้า: ${productName || 'ไม่มี'}\nจำนวนรูป: ${images?.length || 0} รูป`);
     };
 
-    // Method 1: Custom Event Listener
-    window.addEventListener('SHOPEE_X_DATA_TRANSFER', handleExtensionData);
-
-    // Method 2: Message Event Listener (for postMessage)
+    // SECURITY: Listen for generic event name from extension (replaces old 'SHOPEE_X_DATA_TRANSFER')
     const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'SHOPEE_X_DATA_TRANSFER') {
+      if (event.data?.type === '__xfer_msg') {
         handleExtensionData({ detail: event.data.detail });
       }
     };
     window.addEventListener('message', handleMessage);
 
     return () => {
-      window.removeEventListener('SHOPEE_X_DATA_TRANSFER', handleExtensionData);
       window.removeEventListener('message', handleMessage);
     };
   }, []);
+
+  // Load state from IndexedDB on startup
+  useEffect(() => {
+    const restoreState = async () => {
+      try {
+        const savedState = await loadFromDB<any>('appState');
+        if (savedState) {
+          if (savedState.productUrl) setProductUrl(savedState.productUrl);
+          if (savedState.productName) setProductName(savedState.productName);
+          if (savedState.productDesc) setProductDesc(savedState.productDesc);
+          if (savedState.scrapedImages) {
+            setScrapedImages(savedState.scrapedImages);
+            setOriginalScrapedImages(savedState.scrapedImages);
+          }
+          if (savedState.localImages) {
+            setLocalImages(savedState.localImages);
+            setOriginalLocalImages(savedState.localImages);
+          }
+          if (savedState.generatedImages) setGeneratedImages(savedState.generatedImages);
+          if (savedState.selectedStyle) setSelectedStyle(savedState.selectedStyle);
+          if (savedState.selectedImageModel) setSelectedImageModel(savedState.selectedImageModel);
+          if (savedState.step) setStep(savedState.step);
+          if (savedState.selectedCategories) setSelectedCategories(new Set(savedState.selectedCategories));
+        }
+      } catch (err) {
+        console.error('Failed to restore state from DB:', err);
+      } finally {
+        setIsRestoring(false);
+      }
+    };
+    restoreState();
+  }, []);
+
+  // Save state to IndexedDB on change (debounce naturally by reactivity)
+  useEffect(() => {
+    if (isRestoring) return; // Don't save while we are still loading
+
+    const stateToSave = {
+      productUrl,
+      productName,
+      productDesc,
+      scrapedImages,
+      localImages,
+      generatedImages,
+      selectedStyle,
+      selectedImageModel,
+      step,
+      selectedCategories: Array.from(selectedCategories)
+    };
+    
+    saveToDB('appState', stateToSave).catch(err => console.error('Failed to save state to DB:', err));
+  }, [
+    isRestoring,
+    productUrl,
+    productName,
+    productDesc,
+    scrapedImages,
+    localImages,
+    generatedImages,
+    selectedStyle,
+    selectedImageModel,
+    step,
+    selectedCategories
+  ]);
+
+  // ==========================================
+  // AUTHENTICATION HANDLERS
+  // ==========================================
+  const handleAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!authEmail || !authPassword) {
+      addNotification('error', 'ข้อมูลไม่ครบถ้วน', 'กรุณากรอกอีเมลและรหัสผ่าน');
+      return;
+    }
+    if (authTab === 'register' && !authName) {
+      addNotification('error', 'ข้อมูลไม่ครบถ้วน', 'กรุณากรอกชื่อผู้ใช้งาน');
+      return;
+    }
+
+    setIsSubmittingAuth(true);
+    try {
+      if (authTab === 'login') {
+        const success = await login(authEmail, authPassword);
+        if (success) {
+          addNotification('success', 'เข้าสู่ระบบสำเร็จ', 'ยินดีต้อนรับกลับสู่ PicSeller!');
+        } else {
+          addNotification('error', 'เข้าสู่ระบบล้มเหลว', 'อีเมลหรือรหัสผ่านไม่ถูกต้อง');
+        }
+      } else {
+        const success = await register(authEmail, authPassword, authName);
+        if (success) {
+          addNotification('success', 'ลงทะเบียนสำเร็จ', 'สร้างบัญชีผู้ใช้งานใหม่เรียบร้อยแล้ว!');
+          setAuthTab('login');
+        } else {
+          addNotification('error', 'ลงทะเบียนล้มเหลว', 'อีเมลนี้ถูกใช้งานแล้ว หรือรหัสผ่านไม่ตรงตามเงื่อนไข');
+        }
+      }
+    } catch (err: any) {
+      addNotification('error', 'เกิดข้อผิดพลาด', err.message || 'ระบบเกิดข้อผิดพลาดในการตรวจสอบสิทธิ์');
+    } finally {
+      setIsSubmittingAuth(false);
+    }
+  };
+
+  const handleSocialLogin = async (provider: 'google' | 'facebook' | 'apple') => {
+    setIsSubmittingAuth(true);
+    try {
+      const success = await loginWithSocial(provider);
+      if (success) {
+        addNotification('success', 'เชื่อมต่อสำเร็จ', `เข้าสู่ระบบผ่าน ${provider.toUpperCase()} เรียบร้อยแล้ว`);
+      }
+    } catch (err: any) {
+      addNotification('error', 'เชื่อมต่อล้มเหลว', `ไม่สามารถเข้าสู่ระบบผ่าน ${provider} ได้`);
+    } finally {
+      setIsSubmittingAuth(false);
+    }
+  };
+
+  // ==========================================
+  // SETTINGS HANDLERS
+  // ==========================================
+  const handleSaveSettings = () => {
+    const validKeys = apiKeys.filter(k => k.trim());
+    localStorage.setItem('gemini_api_keys', JSON.stringify(validKeys));
+    localStorage.setItem('remove_bg_api_key', removeBgKey);
+    addNotification('success', 'บันทึกการตั้งค่าแล้ว', 'อัปเดต API Keys สำหรับการประมวลผลเรียบร้อย');
+    setShowSettings(false);
+  };
+
+  const handleAddApiKey = () => {
+    setApiKeys(prev => [...prev, '']);
+    setKeyVisibility(prev => [...prev, false]);
+  };
+
+  const handleRemoveApiKey = (index: number) => {
+    if (apiKeys.length <= 1) {
+      setApiKeys(['']);
+      setKeyVisibility([false]);
+      return;
+    }
+    setApiKeys(prev => prev.filter((_, i) => i !== index));
+    setKeyVisibility(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleApiKeyChange = (index: number, value: string) => {
+    const updated = [...apiKeys];
+    updated[index] = value;
+    setApiKeys(updated);
+  };
+
+  const toggleKeyVisibility = (index: number) => {
+    const updated = [...keyVisibility];
+    updated[index] = !updated[index];
+    setKeyVisibility(updated);
+  };
 
   // Helper to convert URL to Base64 (using proxy to avoid CORS)
   const imageUrlToBase64 = async (url: string): Promise<string> => {
@@ -212,7 +647,9 @@ const App: React.FC = () => {
     (Array.from(files) as File[]).forEach(file => {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setLocalImages(prev => [...prev, reader.result as string]);
+        const result = reader.result as string;
+        setLocalImages(prev => [...prev, result]);
+        setOriginalLocalImages(prev => [...prev, result]);
       };
       reader.readAsDataURL(file);
     });
@@ -220,21 +657,22 @@ const App: React.FC = () => {
 
   const removeLocalImage = (index: number) => {
     setLocalImages(prev => prev.filter((_, i) => i !== index));
+    setOriginalLocalImages(prev => prev.filter((_, i) => i !== index));
   };
 
   const removeScrapedImage = (index: number) => {
     setScrapedImages(prev => prev.filter((_, i) => i !== index));
+    setOriginalScrapedImages(prev => prev.filter((_, i) => i !== index));
   };
 
   const handlePreviewScrape = async () => {
     if (!productUrl) {
-      alert("กรุณาใส่ Shopee Product URL ก่อนกดเรียกดู");
+      addNotification('error', 'ลิงก์สินค้าว่างเปล่า', 'กรุณาใส่ Shopee Product URL ก่อนกดเรียกดู');
       return;
     }
     setIsScrapingOnly(true);
     setScrapeError(null);
     try {
-      // Cast productUrl to string explicitly to resolve 'unknown' type errors
       const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(productUrl as string)}`;
       const response = await fetch(proxyUrl);
       const data = await response.json() as any;
@@ -246,16 +684,22 @@ const App: React.FC = () => {
         foundImages.push(...Array.from(new Set(matches as string[])).slice(0, 5));
       }
       if (foundImages.length === 0) {
-        setScrapedImages([
+        const placeholders = [
           'https://picsum.photos/400/400?random=101',
           'https://picsum.photos/400/400?random=102',
           'https://picsum.photos/400/400?random=103',
-        ]);
+        ];
+        setScrapedImages(placeholders);
+        setOriginalScrapedImages(placeholders);
+        addNotification('info', 'ใช้รูปภาพตัวอย่าง', 'ไม่พบรูปภาพในลิงก์สินค้า ระบบใช้รูปภาพสุ่มแทนชั่วคราว');
       } else {
         setScrapedImages(foundImages);
+        setOriginalScrapedImages(foundImages);
+        addNotification('success', 'ดึงข้อมูลสำเร็จ', `ดึงข้อมูลภาพสินค้า Shopee ได้ทั้งหมด ${foundImages.length} ภาพ`);
       }
     } catch (e) {
       setScrapeError("ไม่สามารถดึงภาพจริงได้เนื่องจากระบบป้องกันของ Shopee");
+      addNotification('warning', 'สแกนรูปภาพไม่สำเร็จ', 'ไม่สามารถเข้าถึงหน้าสินค้าได้ ระบบใช้ภาพสุ่มทดแทน');
     } finally {
       setIsScrapingOnly(false);
     }
@@ -263,12 +707,19 @@ const App: React.FC = () => {
 
   const handleScrape = async () => {
     if (!productUrl && !productName && localImages.length === 0) {
-      alert("กรุณาระบุข้อมูลสินค้าหรืออัปโหลดรูปภาพอย่างน้อย 1 อย่าง");
+      addNotification('error', 'ข้อมูลไม่ครบถ้วน', 'กรุณาระบุข้อมูลสินค้าหรืออัปโหลดรูปภาพอย่างน้อย 1 อย่าง');
       return;
     }
+
+    if (user) {
+      if (user.credits < 1) {
+        addNotification('error', 'เครดิตไม่เพียงพอ', 'กรุณาอัปเกรดแพ็กเกจหรือเติมเครดิตเพื่อวิเคราะห์สินค้า (ใช้ 1 เครดิต)');
+        return;
+      }
+    }
+
     setIsAnalyzing(true);
     try {
-      // Prepare images for analysis
       const imagesToAnalyze = await Promise.all(
         [...localImages, ...scrapedImages].map(url => imageUrlToBase64(url))
       );
@@ -278,22 +729,46 @@ const App: React.FC = () => {
       setProductName(prev => prev || analysis.name);
       setProductDesc(prev => prev || analysis.visualDescription);
       if (productUrl && scrapedImages.length === 0) await handlePreviewScrape();
+      
+      if (user) {
+        const success = deductCredit(1);
+        if (success) {
+          addNotification('success', 'วิเคราะห์สินค้าสำเร็จ', 'หักเครดิตสำหรับการประมวลผล 1 เครดิต');
+        }
+      } else {
+        addNotification('success', 'วิเคราะห์สินค้าสำเร็จ', 'AI วิเคราะห์ข้อมูลสินค้าเสร็จเรียบร้อยแล้ว');
+      }
       setStep(2);
     } catch (error) {
       console.error("Analysis Error:", error);
-      alert("Analysis failed. Please check your inputs or try again.");
+      addNotification('error', 'วิเคราะห์สินค้าล้มเหลว', 'เกิดข้อผิดพลาดในการวิเคราะห์ข้อมูลด้วย AI');
     } finally {
       setIsAnalyzing(false);
     }
   };
 
   const startGeneration = async () => {
-    setIsGenerating(true);
+    if (selectedCategories.size === 0) {
+      addNotification('warning', 'เลือกหมวดหมู่ก่อน', 'กรุณาเลือกอย่างน้อย 1 หมวดหมู่ที่ต้องการสร้างภาพ');
+      return;
+    }
+
     const sortedCategories = Object.keys(IMAGE_CATEGORIES_METADATA).sort(
       (a, b) => IMAGE_CATEGORIES_METADATA[a as ImageCategory].order - IMAGE_CATEGORIES_METADATA[b as ImageCategory].order
     ) as ImageCategory[];
 
-    const initialGenerated: GeneratedImage[] = sortedCategories.map(cat => ({
+    const categoriesToGenerate = sortedCategories.filter(cat => selectedCategories.has(cat));
+    const requiredCredits = categoriesToGenerate.length;
+
+    if (user) {
+      if (user.credits < requiredCredits) {
+        addNotification('error', 'เครดิตไม่เพียงพอ', `ต้องการ ${requiredCredits} เครดิตสำหรับสร้างภาพ ${requiredCredits} หมวดหมู่ (คุณมีอยู่ ${user.credits} เครดิต)`);
+        return;
+      }
+    }
+
+    setIsGenerating(true);
+    const initialGenerated: GeneratedImage[] = categoriesToGenerate.map(cat => ({
       id: Math.random().toString(36).substr(2, 9),
       category: cat,
       url: '',
@@ -303,10 +778,9 @@ const App: React.FC = () => {
 
     setGeneratedImages(initialGenerated);
     setStep(3);
+    addNotification('info', 'กำลังประมวลผลรูปภาพ', `เตรียมความพร้อมและปรับภาพเป็น Base64 สำหรับส่งให้ AI Gemini...`);
 
-    // CRITICAL FIX: Convert scraped URLs to Base64 so Gemini can read them
     console.log("Processing images for AI...");
-    // Process BOTH local and scraped images
     const allImages = [...localImages, ...scrapedImages];
     const processedImages = await Promise.all(
       allImages.map(url => imageUrlToBase64(url))
@@ -320,34 +794,63 @@ const App: React.FC = () => {
       features: ["คุณภาพพรีเมียม", "ทนทาน", "ดีไซน์ทันสมัย"]
     };
 
-    for (const cat of sortedCategories) {
+    addNotification('info', 'เริ่มระบบสร้างภาพ AI', `กำลังติดต่อโมเดล ${selectedImageModel} เพื่อสร้างภาพตามหมวดหมู่...`);
+
+    let successCount = 0;
+    for (const cat of categoriesToGenerate) {
       setGeneratedImages(prev => prev.map(p => p.category === cat ? { ...p, status: 'generating' } : p));
       try {
-        const url = await generateProductImage(cat, productData, selectedStyle);
-        setGeneratedImages(prev => prev.map(p => p.category === cat ? { ...p, url, status: 'completed' } : p));
+        const customPromptForTutorial = cat === ImageCategory.TUTORIAL
+          ? JSON.stringify(tutorialStepPrompts)
+          : undefined;
+        const result = await generateProductImage(cat, productData, selectedStyle, customPromptForTutorial, selectedImageModel, imageAspectRatios[cat] || selectedAspectRatio);
+        setGeneratedImages(prev => prev.map(p => p.category === cat ? { ...p, url: result.imageUrl, status: 'completed', thaiTexts: result.thaiTexts, promptUsed: result.promptUsed } : p));
+        successCount++;
       } catch (err) {
         setGeneratedImages(prev => prev.map(p => p.category === cat ? { ...p, status: 'error' } : p));
+        addNotification('error', 'สร้างภาพล้มเหลว', `เกิดข้อผิดพลาดในการสร้างภาพหมวดหมู่: ${IMAGE_CATEGORIES_METADATA[cat]?.title || cat}`);
       }
+    }
+
+    if (user && successCount > 0) {
+      deductCredit(successCount);
+      addNotification('success', 'สร้างภาพเสร็จสิ้น', `ระบบหัก ${successCount} เครดิตสำหรับการสร้างภาพสำเร็จ ${successCount} ภาพ`);
+    } else if (successCount > 0) {
+      addNotification('success', 'สร้างภาพเสร็จสิ้น', `สร้างภาพเสร็จเรียบร้อยทั้งหมด ${successCount} ภาพ`);
     }
     setIsGenerating(false);
   };
 
   // ฟังก์ชัน Regenerate สำหรับภาพเดี่ยว
-  const regenerateImage = async (category: ImageCategory, customPrompt?: string) => {
+  const regenerateImage = async (category: ImageCategory, customPrompt?: string, styleOverride?: string) => {
     // อัปเดตจำนวนครั้งที่พยายามสร้างใหม่
     setRegenerationAttempts(prev => ({
       ...prev,
       [category]: (prev[category] || 0) + 1
     }));
 
-    // อัปเดตสถานะเป็นกำลังสร้างใหม่
-    setGeneratedImages(prev => prev.map(img =>
-      img.category === category ? {
-        ...img,
-        status: 'generating',
-        error: undefined
-      } : img
-    ));
+    // อัปเดตสถานะเป็นกำลังสร้างใหม่ (หรือสร้างภาพครั้งแรกสำหรับ Slot ว่าง)
+    setGeneratedImages(prev => {
+      const exists = prev.some(img => img.category === category);
+      if (exists) {
+        return prev.map(img =>
+          img.category === category ? {
+            ...img,
+            status: 'generating',
+            error: undefined
+          } : img
+        );
+      } else {
+        // กรณีคลิกจาก Slot ว่าง ให้เพิ่ม State ใหม่เข้าไป
+        return [...prev, {
+          id: Math.random().toString(36).substr(2, 9),
+          category: category,
+          url: '',
+          prompt: '',
+          status: 'generating'
+        }];
+      }
+    });
 
     try {
       // แปลงรูปภาพที่เกี่ยวข้องให้เป็น Base64 เพื่อใช้กับ Gemini
@@ -366,14 +869,18 @@ const App: React.FC = () => {
 
       // สร้างภาพใหม่เฉพาะหมวดที่เลือก โดยใช้จำนวนครั้งที่พยายามสร้างใหม่เพื่อปรับ prompt
       const attemptCount = regenerationAttempts[category] || 1;
-      const newImageUrl = await generateProductImage(category, productData, selectedStyle, customPrompt);
+      const styleToUse = styleOverride || selectedStyle;
+      const ratio = imageAspectRatios[category] || selectedAspectRatio;
+      const result = await generateProductImage(category, productData, styleToUse, customPrompt, selectedImageModel, ratio);
 
       // อัปเดตเฉพาะภาพที่เลือก
       setGeneratedImages(prev => prev.map(img =>
         img.category === category ? {
           ...img,
-          url: newImageUrl,
-          status: 'completed'
+          url: result.imageUrl,
+          status: 'completed',
+          thaiTexts: result.thaiTexts,
+          promptUsed: result.promptUsed
         } : img
       ));
     } catch (err) {
@@ -390,10 +897,18 @@ const App: React.FC = () => {
     }
   };
 
+  // ลบอักขระที่ทำให้เกิด subfolder ใน ZIP หรือ OS
+  const sanitizeFileName = (name: string) =>
+    name.replace(/[\/\\:*?"<>|]/g, '_').replace(/_+/g, '_').trim();
+
   const downloadSingleImage = (url: string, categoryName: string) => {
+    // ใช้ชื่อหมวดหมู่ภาษาไทยจาก metadata สำหรับชื่อไฟล์
+    const categoryMeta = IMAGE_CATEGORIES_METADATA[categoryName as ImageCategory];
+    const thaiTitle = categoryMeta?.title || categoryName;
+    const order = categoryMeta?.order || 0;
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${productName || 'product'}_${categoryName}.png`;
+    link.download = sanitizeFileName(`${order}__${thaiTitle}${productName || 'product'}`) + '.png';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -401,22 +916,194 @@ const App: React.FC = () => {
 
   const handleDownloadAll = async () => {
     setIsZipping(true);
+    const zip = new JSZip();
+
+    // สร้างเนื้อหาไฟล์ข้อมูลอ้างอิงข้อความภาษาไทย
+    let thaiTextContent = `═══════════════════════════════════════════════════════\n`;
+    thaiTextContent += `  ข้อมูลอ้างอิงข้อความภาษาไทย (Thai Text Reference)\n`;
+    thaiTextContent += `  สำหรับแก้ไขข้อความที่เพี้ยนในภาพ AI ด้วย Photoshop\n`;
+    thaiTextContent += `═══════════════════════════════════════════════════════\n\n`;
+    // ลบ markdown formatting จากรายละเอียดเพื่อให้อ่านง่ายใน text file
+    const cleanDesc = (productDesc || 'ไม่ระบุ')
+      .replace(/\*\*/g, '')
+      .replace(/\*/g, '')
+      .replace(/#+\s/g, '')
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0)
+      .join(' | ');
+    const shortDesc = cleanDesc.length > 200 ? cleanDesc.substring(0, 200) + '...' : cleanDesc;
+
+    // หาชื่อแพลตฟอร์มที่เลือกจาก STYLES array
+    const selectedStyleInfo = STYLES.find(st => st.id === selectedStyle);
+    const platformName = selectedStyleInfo?.name || selectedStyle;
+
+    thaiTextContent += `📦 ชื่อสินค้า: ${productName || 'ไม่ระบุ'}\n`;
+    thaiTextContent += `🎨 แพลตฟอร์ม/สไตล์: ${platformName}\n`;
+    thaiTextContent += `📝 รายละเอียด (ย่อ): ${shortDesc}\n\n`;
+    thaiTextContent += `───────────────────────────────────────────────────────\n`;
+    thaiTextContent += `  ข้อความที่ควรปรากฏในแต่ละภาพ\n`;
+    thaiTextContent += `───────────────────────────────────────────────────────\n\n`;
+
+    // Add completed images to zip
+    for (const img of generatedImages) {
+      if (img.status === 'completed' && img.url) {
+        // ใช้ชื่อหมวดหมู่ภาษาไทยจาก metadata สำหรับชื่อไฟล์
+        const categoryMeta = IMAGE_CATEGORIES_METADATA[img.category];
+        const thaiTitle = categoryMeta?.title || img.category;
+        const order = categoryMeta?.order || 0;
+
+        // Remove data:image/png;base64, prefix
+        const base64Data = img.url.replace(/^data:image\/\w+;base64,/, "");
+        const fileName = sanitizeFileName(`${order}__${thaiTitle}${productName || 'product'}`) + '.png';
+        zip.file(fileName, base64Data, { base64: true });
+
+        // เพิ่มข้อมูลข้อความภาษาไทยของแต่ละภาพ
+        thaiTextContent += `🖼️ [${thaiTitle}] — ไฟล์: ${fileName}\n`;
+        if (img.thaiTexts && img.thaiTexts.length > 0) {
+          img.thaiTexts.forEach(text => {
+            thaiTextContent += `   • ${text}\n`;
+          });
+        } else {
+          thaiTextContent += `   • ชื่อสินค้า: ${productName || 'ไม่ระบุ'}\n`;
+        }
+        thaiTextContent += `\n`;
+      }
+    }
+
+    thaiTextContent += `───────────────────────────────────────────────────────\n`;
+    thaiTextContent += `💡 วิธีใช้: เปิดไฟล์นี้ + เปิดภาพใน Photoshop\n`;
+    thaiTextContent += `   Copy ข้อความจากไฟล์นี้ไปวางแทนที่ข้อความที่เพี้ยนในภาพ\n`;
+    thaiTextContent += `═══════════════════════════════════════════════════════\n`;
+
+    // เพิ่มไฟล์ข้อมูลอ้างอิงข้อความภาษาไทยลงใน ZIP
+    zip.file('_ข้อความภาษาไทย.txt', thaiTextContent);
+
+    // Generate zip
     try {
-      const zip = new JSZip();
-      const folder = zip.folder((productName || 'product').replace(/\s+/g, '_'));
-      generatedImages.filter(img => img.status === 'completed').forEach(img => {
-        const base64Data = img.url.split(',')[1];
-        folder?.file(`${IMAGE_CATEGORIES_METADATA[img.category].order}_${img.category}.png`, base64Data, { base64: true });
-      });
-      const content = await zip.generateAsync({ type: 'blob' });
+      const content = await zip.generateAsync({ type: "blob" });
+      const url = window.URL.createObjectURL(content);
       const link = document.createElement('a');
-      link.href = URL.createObjectURL(content);
-      link.download = "shopee_images.zip";
+      link.href = url;
+      link.download = `PicSeller-${productName || 'images'}.zip`;
+      document.body.appendChild(link);
       link.click();
-    } catch (e) {
-      alert("ZIP error");
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error("Zip error:", err);
+      alert("เกิดข้อผิดพลาดในการสร้างไฟล์ ZIP");
     } finally {
       setIsZipping(false);
+    }
+  };
+
+  // ฟังก์ชั่นบันทึกไฟล์ลงโฟลเดอร์โดยตรง (ไม่ต้องแตก ZIP)
+  const handleDownloadToFolder = async () => {
+    // ตรวจว่า browser รองรับ File System Access API
+    if (!('showDirectoryPicker' in window)) {
+      alert('เบราว์เซอร์ไม่รองรับฟีเจอร์นี้ กรุณาใช้ Chrome หรือ Edge');
+      return;
+    }
+
+    try {
+      // เปิดหน้าต่างเลือกโฟลเดอร์
+      const dirHandle = await (window as any).showDirectoryPicker({ mode: 'readwrite' });
+      setIsSavingToFolder(true);
+
+      // สร้างเนื้อหาไฟล์ข้อมูลอ้างอิงข้อความภาษาไทย
+      const selectedStyleInfo = STYLES.find(st => st.id === selectedStyle);
+      const platformName = selectedStyleInfo?.name || selectedStyle;
+      const cleanDesc = (productDesc || 'ไม่ระบุ')
+        .replace(/\*\*/g, '').replace(/\*/g, '').replace(/#+\s/g, '')
+        .split('\n').map(l => l.trim()).filter(l => l.length > 0).join(' | ');
+      const shortDesc = cleanDesc.length > 200 ? cleanDesc.substring(0, 200) + '...' : cleanDesc;
+
+      let thaiTextContent = `═══════════════════════════════════════════════════════\n`;
+      thaiTextContent += `  ข้อมูลอ้างอิงข้อความภาษาไทย (Thai Text Reference)\n`;
+      thaiTextContent += `  สำหรับแก้ไขข้อความที่เพี้ยนในภาพ AI ด้วย Photoshop\n`;
+      thaiTextContent += `═══════════════════════════════════════════════════════\n\n`;
+      thaiTextContent += `📦 ชื่อสินค้า: ${productName || 'ไม่ระบุ'}\n`;
+      thaiTextContent += `🎨 แพล็ตฟอร์ม/สไตล์: ${platformName}\n`;
+      thaiTextContent += `📝 รายละเอียด (ย่อ): ${shortDesc}\n\n`;
+      thaiTextContent += `───────────────────────────────────────────────────────\n`;
+      thaiTextContent += `  ข้อความที่ควรปรากฏในแต่ละภาพ\n`;
+      thaiTextContent += `───────────────────────────────────────────────────────\n\n`;
+
+      // บันทึกแต่ละภาพลงโฟลเดอร์
+      for (const img of generatedImages) {
+        if (img.status === 'completed' && img.url) {
+          const categoryMeta = IMAGE_CATEGORIES_METADATA[img.category];
+          const thaiTitle = categoryMeta?.title || img.category;
+          const order = categoryMeta?.order || 0;
+          const fileName = sanitizeFileName(`${order}__${thaiTitle}${productName || 'product'}`) + '.png';
+
+          // แปลง base64 เป็น blob แล้วเขียนไฟล์
+          const base64Data = img.url.replace(/^data:image\/\w+;base64,/, '');
+          const binaryStr = atob(base64Data);
+          const bytes = new Uint8Array(binaryStr.length);
+          for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+
+          const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(bytes);
+          await writable.close();
+
+          // เพิ่มข้อมูล text reference
+          thaiTextContent += `🖼️ [${thaiTitle}] — ไฟล์: ${fileName}\n`;
+          if (img.thaiTexts && img.thaiTexts.length > 0) {
+            img.thaiTexts.forEach(text => { thaiTextContent += `   • ${text}\n`; });
+          } else {
+            thaiTextContent += `   • ชื่อสินค้า: ${productName || 'ไม่ระบุ'}\n`;
+          }
+          thaiTextContent += `\n`;
+        }
+      }
+
+      thaiTextContent += `───────────────────────────────────────────────────────\n`;
+      thaiTextContent += `💡 วิธีใช้: เปิดไฟล์นี้ + เปิดภาพใน Photoshop\n`;
+      thaiTextContent += `   Copy ข้อความจากไฟล์นี้ไปวางแทนที่ข้อความที่เพี้ยนในภาพ\n`;
+      thaiTextContent += `═══════════════════════════════════════════════════════\n`;
+
+      // บันทึกไฟล์ text reference ลงโฟลเดอร์
+      const txtHandle = await dirHandle.getFileHandle('_ข้อความภาษาไทย.txt', { create: true });
+      const txtWritable = await txtHandle.createWritable();
+      await txtWritable.write(new TextEncoder().encode(thaiTextContent));
+      await txtWritable.close();
+
+      alert(`บันทึกไฟล์ลงโฟลเดอร์เรียบร้อย! \ud83c\udf89 (${generatedImages.filter(i => i.status === 'completed').length} ภาพ + 1 ไฟล์ text)`);
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        console.error('Folder save error:', err);
+        alert('เกิดข้อผิดพลาดในการบันทึกไฟล์');
+      }
+    } finally {
+      setIsSavingToFolder(false);
+    }
+  };
+
+  // ฟังก์ชันสรุปรายละเอียดสินค้า
+  const handleSummarize = async () => {
+    if (!productDesc && localImages.length === 0 && scrapedImages.length === 0) {
+      alert("กรุณากรอกรายละเอียดหรืออัปโหลดรูปภาพก่อนทำการสรุป");
+      return;
+    }
+
+    setIsSummarizing(true);
+    try {
+      // รวมรูปภาพทั้งหมดเพื่อส่งไปวิเคราะห์
+      const allImages = [...localImages, ...scrapedImages];
+      const processedImages = await Promise.all(
+        allImages.slice(0, 3).map(url => imageUrlToBase64(url)) // ส่งแค่ 3 รูปแรก
+      );
+      const validImages = processedImages.filter(img => img && img !== "");
+
+      const summary = await summarizeProductDescription(productDesc, validImages, summaryLength);
+      setProductDesc(summary);
+    } catch (err) {
+      console.error("Summarize error:", err);
+      alert("เกิดข้อผิดพลาดในการสรุปสินค้า");
+    } finally {
+      setIsSummarizing(false);
     }
   };
 
@@ -450,6 +1137,29 @@ const App: React.FC = () => {
     setPromptInputs(prev => ({ ...prev, [category]: value }));
   };
 
+  // ฟังก์ชันสำหรับเลือก/ยกเลิกเลือกหมวดหมู่
+  const toggleCategory = (category: ImageCategory) => {
+    setSelectedCategories(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(category)) {
+        newSet.delete(category);
+      } else {
+        newSet.add(category);
+      }
+      return newSet;
+    });
+  };
+
+  // ฟังก์ชันสำหรับเลือกทั้งหมด/ยกเลิกทั้งหมด
+  const toggleSelectAll = () => {
+    const allCategories = Object.keys(IMAGE_CATEGORIES_METADATA) as ImageCategory[];
+    if (selectedCategories.size === allCategories.length) {
+      setSelectedCategories(new Set());
+    } else {
+      setSelectedCategories(new Set(allCategories));
+    }
+  };
+
   // เพิ่ม state สำหรับแสดงรายละเอียดสไตล์
   const [showStyleDetails, setShowStyleDetails] = useState<string | null>(null);
 
@@ -457,7 +1167,7 @@ const App: React.FC = () => {
   const [mainImageIndex, setMainImageIndex] = useState<number | null>(null);
 
   // ฟังก์ชัน Remove Background โดยใช้ remove.bg API
-  const removeBackground = async (imageSrc: string, index: number) => {
+  const removeBackground = async (imageSrc: string, index: number, isScraped: boolean) => {
     try {
       // แปลง data URL เป็น Blob
       const response = await fetch(imageSrc);
@@ -490,25 +1200,94 @@ const App: React.FC = () => {
         reader.readAsDataURL(resultBlob);
       });
 
-      // อัปเดตรายการภาพที่อัปโหลด
-      const updatedLocalImages = [...localImages];
-      updatedLocalImages[index] = resultUrl;
-      setLocalImages(updatedLocalImages);
+      // อัปเดตรายการภาพตามแหล่งที่มา
+      if (isScraped) {
+        const updatedScrapedImages = [...scrapedImages];
+        updatedScrapedImages[index] = resultUrl;
+        setScrapedImages(updatedScrapedImages);
+      } else {
+        const updatedLocalImages = [...localImages];
+        updatedLocalImages[index] = resultUrl;
+        setLocalImages(updatedLocalImages);
+      }
 
       return resultUrl;
     } catch (error) {
       console.error("Error removing background:", error);
+      alert("ไม่สามารถลบพื้นหลังได้: " + (error instanceof Error ? error.message : "Unknown error"));
+      return null;
+    }
+  };
 
-      // ให้ข้อเสนอแนะแก่ผู้ใช้ตามประเภทของข้อผิดพลาด
-      if (error instanceof TypeError) {
-        alert("ไม่สามารถประมวลผลภาพได้เนื่องจากข้อมูลภาพไม่ถูกต้อง กรุณาตรวจสอบภาพที่อัปโหลด");
-      } else if (error instanceof SyntaxError) {
-        alert("มีข้อผิดพลาดในการตีความคำสั่ง กรุณาลองอัปโหลดภาพอีกครั้ง");
-      } else {
-        alert("เกิดข้อผิดพลาดในการลบพื้นหลังของภาพ กรุณาลองใหม่อีกครั้ง");
+  // Extract inner removeBg logic into a pure function for Modal to use without state bindings
+  const callRemoveBgApi = async (dataUrl: string): Promise<string | null> => {
+    try {
+      const response = await fetch(dataUrl);
+      const blob = await response.blob();
+      const formData = new FormData();
+      formData.append('image_file', blob, 'image.png');
+      const apiResponse = await fetch('https://api.remove.bg/v1.0/removebg', {
+        method: 'POST',
+        headers: {
+          'X-Api-Key': (import.meta as any).env.VITE_REMOVE_BG_API_KEY || 'QXnQtJFLb4JJ2uM74xnpR17N'
+        },
+        body: formData
+      });
+      if (!apiResponse.ok) throw new Error(`Remove.bg API error: ${apiResponse.status}`);
+      const resultBlob = await apiResponse.blob();
+      const reader = new FileReader();
+      return await new Promise<string>((resolve, reject) => {
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(resultBlob);
+      });
+    } catch (err) {
+      console.error(err);
+      return null;
+    }
+  };
+
+  const handleSaveEditedImage = (editedBase64: string) => {
+    if (!editingImageParams) return;
+    const { isScraped, index } = editingImageParams;
+    
+    if (isScraped) {
+      setScrapedImages(prev => {
+        const updated = [...prev];
+        updated[index] = editedBase64;
+        return updated;
+      });
+    } else {
+      setLocalImages(prev => {
+        const updated = [...prev];
+        updated[index] = editedBase64;
+        return updated;
+      });
+    }
+  };
+
+  // ฟังก์ชันกู้คืนภาพต้นฉบับ
+  const restoreBackground = (index: number, isScraped: boolean) => {
+    if (isScraped) {
+      if (originalScrapedImages[index]) {
+        setScrapedImages(prev => {
+          const updated = [...prev];
+          updated[index] = originalScrapedImages[index];
+          return updated;
+        });
+      }
+    } else {
+      if (originalLocalImages[index]) {
+        setLocalImages(prev => {
+          const updated = [...prev];
+          updated[index] = originalLocalImages[index];
+          return updated;
+        });
       }
     }
   };
+
+
 
   const selectedStyleName = STYLES.find(s => s.id === selectedStyle)?.name || 'Available Style';
 
@@ -520,7 +1299,12 @@ const App: React.FC = () => {
             <Sparkles className="text-white w-6 h-6" />
           </div>
           <div className="cursor-pointer group" onClick={() => setStep(1)}>
-            <h1 className="font-black text-xl tracking-tight group-hover:text-orange-500 transition-colors uppercase">Shopee Master</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="font-black text-xl tracking-tight group-hover:text-orange-500 transition-colors uppercase">PicSeller</h1>
+              <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${theme === 'dark' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-600 border border-emerald-200'} tracking-wider`} title="Last updated: 2026-03-11 — Security Hardening">
+                v1.3.0
+              </span>
+            </div>
             <p className={`${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'} text-[10px] font-bold uppercase tracking-[0.2em]`}>Visual Commerce Suite</p>
           </div>
         </div>
@@ -608,12 +1392,58 @@ const App: React.FC = () => {
                           รายละเอียดสินค้า
                         </label>
                         <textarea
-                          rows={3}
+                          rows={6}
                           placeholder="สรุปจุดขาย หรือสิ่งที่ต้องการให้ AI เน้นเป็นพิเศษ..."
-                          className={`w-full px-6 py-5 ${theme === 'dark' ? 'bg-gray-700 text-white border-gray-600 focus:border-orange-500' : 'bg-slate-50 border-slate-100 focus:border-orange-500'} border-2 rounded-2xl focus:outline-none transition-all font-bold text-slate-700 shadow-inner resize-none`}
+                          className={`w-full px-6 py-5 ${theme === 'dark' ? 'bg-gray-700 text-white border-gray-600 focus:border-orange-500' : 'bg-slate-50 border-slate-100 focus:border-orange-500'} border-2 rounded-2xl focus:outline-none transition-all font-bold text-slate-700 shadow-inner resize-y min-h-[120px] max-h-[500px]`}
                           value={productDesc}
                           onChange={(e) => setProductDesc(e.target.value)}
                         />
+
+                        {/* ตัวเลือกความยาวสรุป */}
+                        <div className="mt-3 flex items-center gap-2">
+                          <span className={`text-xs font-bold ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'} whitespace-nowrap`}>ความยาวสรุป:</span>
+                          <div className="flex gap-1 flex-1">
+                            {[
+                              { value: 'short' as const, label: 'สั้น' },
+                              { value: 'medium' as const, label: 'ปานกลาง' },
+                              { value: 'long' as const, label: 'ละเอียด' },
+                            ].map(opt => (
+                              <button
+                                key={opt.value}
+                                onClick={() => setSummaryLength(opt.value)}
+                                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all ${summaryLength === opt.value
+                                  ? 'bg-orange-500 text-white shadow-md'
+                                  : theme === 'dark'
+                                    ? 'bg-gray-600 text-gray-300 hover:bg-gray-500'
+                                    : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                                  }`}
+                              >
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={handleSummarize}
+                          disabled={isSummarizing || (!productDesc && localImages.length === 0 && scrapedImages.length === 0)}
+                          className={`mt-3 w-full py-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${isSummarizing
+                            ? 'bg-slate-100 text-slate-400 cursor-wait'
+                            : 'bg-gradient-to-r from-orange-400 to-orange-600 text-white hover:shadow-lg active:scale-95'
+                            }`}
+                        >
+                          {isSummarizing ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              กำลังสรุปข้อมูล...
+                            </>
+                          ) : (
+                            <>
+                              <Wand2 className="w-4 h-4" />
+                              สรุปจุดขายสินค้าอัตโนมัติ (AI Magic)
+                            </>
+                          )}
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -680,19 +1510,51 @@ const App: React.FC = () => {
                               </button>
                             )}
 
-                            {/* ปุ่มลบพื้นหลังสำหรับภาพที่อัปโหลด */}
-                            {isLocalImage && (
+                            {/* ปุ่มลบพื้นหลังและปุ่มแก้ไขและปุ่มกู้คืน */}
+                            <div className="absolute bottom-2 left-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  removeBackground(src, i);
+                                  const index = isLocalImage ? i : i - localImages.length;
+                                  setEditingImageParams({
+                                    isScraped: !isLocalImage,
+                                    index,
+                                    url: src
+                                  });
                                 }}
-                                className="absolute bottom-2 left-2 p-1.5 bg-white/90 rounded-full text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                className="p-1.5 bg-white/90 rounded-full text-orange-500 shadow-sm hover:scale-110 transition-transform"
+                                title="ตกแต่งรูปภาพ"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const index = isLocalImage ? i : i - localImages.length;
+                                  removeBackground(src, index, !isLocalImage);
+                                }}
+                                className="p-1.5 bg-white/90 rounded-full text-blue-500 shadow-sm hover:scale-110 transition-transform"
                                 title="ลบพื้นหลัง"
                               >
                                 <Scissors className="w-4 h-4" />
                               </button>
-                            )}
+
+                              {/* ปุ่มกู้คืน (แสดงเฉพาะเมื่อมีการเปลี่ยนแปลง) */}
+                              {((isLocalImage && src !== originalLocalImages[i]) || (!isLocalImage && src !== originalScrapedImages[i - localImages.length])) && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const index = isLocalImage ? i : i - localImages.length;
+                                    restoreBackground(index, !isLocalImage);
+                                  }}
+                                  className="p-1.5 bg-white/90 rounded-full text-green-500 shadow-sm hover:scale-110 transition-transform"
+                                  title="กู้คืนภาพเดิม"
+                                >
+                                  <RotateCcw className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
                       );
@@ -747,48 +1609,355 @@ const App: React.FC = () => {
               </div>
 
               <div className={`${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-slate-100'} p-10 rounded-[3rem] border shadow-sm`}>
-                <h3 className={`text-2xl font-black mb-8 flex items-center gap-4 uppercase tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
-                  <Layers className="text-orange-500 w-8 h-8" />
-                  แผนผังการสร้างชุดภาพ 9 หมวดหมู่
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {Object.entries(IMAGE_CATEGORIES_METADATA).sort(([, a], [, b]) => a.order - b.order).map(([key, meta]) => (
-                    <div key={key} className={`flex flex-col gap-4 p-6 rounded-[2rem] border-2 ${theme === 'dark' ? 'bg-gray-800 hover:bg-gray-700 border-gray-700' : 'bg-[#F8FAFC] hover:bg-white border-slate-50'} hover:border-orange-200 hover:shadow-xl hover:shadow-orange-50 transition-all group`}>
-                      <div className={`w-10 h-10 rounded-2xl bg-white shadow-md text-orange-500 font-black flex items-center justify-center flex-shrink-0 group-hover:bg-orange-500 group-hover:text-white transition-all text-sm ${theme === 'dark' ? 'bg-gray-700' : ''}`}>{meta.order}</div>
-                      <div>
-                        <p className={`font-black text-sm uppercase tracking-tight mb-1 ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{meta.title}</p>
-                        <p className={`text-[11px] ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'} font-bold leading-relaxed`}>{meta.desc}</p>
-                      </div>
-                    </div>
-                  ))}
+                <div className="flex items-center justify-between mb-8">
+                  <h3 className={`text-2xl font-black flex items-center gap-4 uppercase tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+                    <Layers className="text-orange-500 w-8 h-8" />
+                    แผนผังการสร้างชุดภาพ {Object.keys(IMAGE_CATEGORIES_METADATA).length} หมวดหมู่
+                  </h3>
+                  <button
+                    onClick={toggleSelectAll}
+                    className={`px-6 py-3 rounded-2xl font-black text-sm transition-all flex items-center gap-2 ${selectedCategories.size === Object.keys(IMAGE_CATEGORIES_METADATA).length
+                      ? (theme === 'dark' ? 'bg-orange-500 text-white hover:bg-orange-600' : 'bg-orange-500 text-white hover:bg-orange-600')
+                      : (theme === 'dark' ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')
+                      }`}
+                  >
+                    {selectedCategories.size === Object.keys(IMAGE_CATEGORIES_METADATA).length ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        เลือกทั้งหมด
+                      </>
+                    ) : (
+                      <>
+                        <LayoutGrid className="w-4 h-4" />
+                        เลือกทั้งหมด ({selectedCategories.size}/{Object.keys(IMAGE_CATEGORIES_METADATA).length})
+                      </>
+                    )}
+                  </button>
                 </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {Object.entries(IMAGE_CATEGORIES_METADATA).sort(([, a], [, b]) => a.order - b.order).map(([key, meta]) => {
+                    const isSelected = selectedCategories.has(key as ImageCategory);
+                    return (
+                      <div
+                        key={key}
+                        onClick={() => toggleCategory(key as ImageCategory)}
+                        className={`flex flex-col gap-4 p-6 rounded-[2rem] border-2 cursor-pointer transition-all group relative ${isSelected
+                          ? (theme === 'dark'
+                            ? 'bg-orange-900/30 border-orange-500 shadow-lg shadow-orange-900/20'
+                            : 'bg-orange-50 border-orange-400 shadow-lg shadow-orange-100')
+                          : (theme === 'dark'
+                            ? 'bg-gray-800 hover:bg-gray-700 border-gray-700 opacity-60'
+                            : 'bg-[#F8FAFC] hover:bg-white border-slate-100 opacity-60')
+                          } hover:opacity-100`}
+                      >
+                        {/* Checkbox Indicator */}
+                        <div className={`absolute top-4 right-4 w-6 h-6 rounded-lg flex items-center justify-center transition-all ${isSelected
+                          ? 'bg-orange-500 text-white'
+                          : (theme === 'dark' ? 'bg-gray-700 border-2 border-gray-600' : 'bg-white border-2 border-slate-200')
+                          }`}>
+                          {isSelected && <CheckCircle2 className="w-4 h-4" />}
+                        </div>
+                        <div className={`w-10 h-10 rounded-2xl shadow-md font-black flex items-center justify-center flex-shrink-0 transition-all text-sm ${isSelected
+                          ? 'bg-orange-500 text-white'
+                          : (theme === 'dark' ? 'bg-gray-700 text-gray-400' : 'bg-white text-slate-400')
+                          }`}>{meta.order}</div>
+                        <div>
+                          <p className={`font-black text-sm uppercase tracking-tight mb-1 ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{meta.title}</p>
+                          <p className={`text-[11px] ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'} font-bold leading-relaxed`}>{meta.desc}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Tutorial Step Configuration - แสดงเมื่อเลือก TUTORIAL */}
+                {selectedCategories.has(ImageCategory.TUTORIAL) && (
+                  <div className={`mt-8 p-8 rounded-[2rem] border-2 ${theme === 'dark' ? 'bg-gray-800/50 border-orange-500/50' : 'bg-orange-50 border-orange-200'}`}>
+                    <div className="flex items-center justify-between mb-6">
+                      <h4 className={`text-lg font-black flex items-center gap-3 ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+                        <LayoutGrid className="w-5 h-5 text-orange-500" />
+                        ตั้งค่า Tutorial 4 ขั้นตอน
+                      </h4>
+                      <button
+                        onClick={() => setTutorialStepPrompts(DEFAULT_TUTORIAL_STEPS)}
+                        className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600 text-gray-300' : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200'}`}
+                      >
+                        <RotateCcw className="w-3 h-3 inline mr-1" />
+                        Reset Default
+                      </button>
+                    </div>
+                    <p className={`text-xs mb-6 ${theme === 'dark' ? 'text-gray-400' : 'text-slate-500'}`}>
+                      ปรับแต่ง prompt สำหรับแต่ละช่องในภาพ Tutorial (2x2 grid) เพื่อให้ AI สร้างภาพตามขั้นตอนที่ต้องการ
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {tutorialStepPrompts.map((prompt, index) => (
+                        <div key={index} className={`p-4 rounded-2xl ${theme === 'dark' ? 'bg-gray-700/50' : 'bg-white'} border ${theme === 'dark' ? 'border-gray-600' : 'border-slate-200'}`}>
+                          <label className={`block text-xs font-black mb-2 ${theme === 'dark' ? 'text-orange-400' : 'text-orange-600'}`}>
+                            {index === 0 ? '↖️ ช่องซ้ายบน' : index === 1 ? '↗️ ช่องขวาบน' : index === 2 ? '↙️ ช่องซ้ายล่าง' : '↘️ ช่องขวาล่าง'}
+                          </label>
+                          <input
+                            type="text"
+                            value={prompt}
+                            onChange={(e) => {
+                              const newPrompts = [...tutorialStepPrompts];
+                              newPrompts[index] = e.target.value;
+                              setTutorialStepPrompts(newPrompts);
+                            }}
+                            placeholder={`Step ${index + 1} description...`}
+                            className={`w-full px-4 py-3 rounded-xl text-sm font-medium transition-all ${theme === 'dark' ? 'bg-gray-800 text-white border-gray-600 focus:border-orange-500' : 'bg-slate-50 text-slate-800 border-slate-200 focus:border-orange-400'} border focus:outline-none`}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
             <div className="space-y-8">
+              {/* ===== GEMINI MODEL SELECTOR ===== */}
+              <div className={`${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-slate-100'} p-8 rounded-[3rem] border shadow-xl`}>
+                <h3 className={`text-lg font-black mb-2 uppercase tracking-tight flex items-center gap-2 ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+                  <Sparkles className="w-5 h-5 text-orange-500" />
+                  เลือกโมเดล Gemini AI
+                </h3>
+                <p className={`text-xs mb-5 ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'}`}>เลือกโมเดลที่ใช้สร้างภาพสินค้า — แต่ละโมเดลมีจุดเด่นต่างกัน</p>
+                <div className="space-y-3">
+                  {GEMINI_IMAGE_MODELS.map(m => {
+                    const isSelected = selectedImageModel === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => setSelectedImageModel(m.id)}
+                        className={`w-full text-left p-4 rounded-2xl border-2 transition-all duration-200 ${isSelected
+                          ? `${m.borderColor} ${theme === 'dark' ? 'bg-gray-700/70' : 'bg-slate-50'} shadow-lg ${m.glowColor} shadow-md scale-[1.02]`
+                          : `${theme === 'dark' ? 'border-gray-700 hover:border-gray-600 bg-gray-800/50 hover:bg-gray-700/40' : 'border-slate-100 hover:border-slate-200 hover:bg-slate-50'}`
+                          }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className={`w-8 h-8 rounded-xl bg-gradient-to-br ${m.iconBg} flex items-center justify-center flex-shrink-0 mt-0.5`}>
+                            <Sparkles className="w-4 h-4 text-white" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap mb-1">
+                              <span className={`text-xs font-black truncate ${isSelected ? m.textColor : theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+                                {m.name}
+                              </span>
+                              <span className={`text-[9px] font-black px-2 py-0.5 rounded-full text-white ${m.badgeColor} flex-shrink-0`}>
+                                {m.badge}
+                              </span>
+                            </div>
+                            <p className={`text-[10px] ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'} leading-tight`}>{m.desc}</p>
+                          </div>
+                          {isSelected && (
+                            <CheckCircle2 className={`w-5 h-5 flex-shrink-0 ${m.textColor}`} />
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* แสดงโมเดลที่เลือก */}
+                <div className={`mt-4 px-4 py-2 rounded-xl text-[10px] font-mono ${theme === 'dark' ? 'bg-gray-900 text-gray-400' : 'bg-slate-100 text-slate-500'}`}>
+                  <span className="opacity-60">model:</span>{' '}
+                  <span className={`font-black ${GEMINI_IMAGE_MODELS.find(m => m.id === selectedImageModel)?.textColor || 'text-orange-400'}`}>
+                    {selectedImageModel}
+                  </span>
+                </div>
+              </div>
+
+              {/* ===== ASPECT RATIO SELECTOR ===== */}
+              <div className={`${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-slate-100'} p-8 rounded-[3rem] border shadow-xl`}>
+                <h3 className={`text-lg font-black mb-2 uppercase tracking-tight flex items-center gap-2 ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+                  <LayoutGrid className="w-5 h-5 text-orange-500" />
+                  อัตราส่วนภาพ (Default)
+                </h3>
+                <p className={`text-xs mb-4 ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'}`}>ใช้กับทุกภาพ — สามารถเปลี่ยนเฉพาะภาพใน Results ได้</p>
+                <div className="grid grid-cols-5 gap-2">
+                  {ASPECT_RATIOS.map(r => {
+                    const isSelected = selectedAspectRatio === r.id;
+                    return (
+                      <button
+                        key={r.id}
+                        onClick={() => setSelectedAspectRatio(r.id)}
+                        title={`${r.name} — ${r.desc}`}
+                        className={`flex flex-col items-center gap-1.5 p-3 rounded-2xl border-2 transition-all duration-200 ${isSelected
+                          ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/30 shadow-md shadow-orange-200/50 scale-105'
+                          : `${theme === 'dark' ? 'border-gray-700 hover:border-gray-600 bg-gray-800/50' : 'border-slate-100 hover:border-slate-200 hover:bg-slate-50'}`
+                          }`}
+                      >
+                        {/* Visual ratio preview box */}
+                        <div className="flex items-center justify-center w-8 h-8">
+                          <div className={`rounded-sm border-2 transition-colors ${isSelected ? 'border-orange-500 bg-orange-100' : theme === 'dark' ? 'border-gray-500 bg-gray-700' : 'border-slate-400 bg-slate-100'}`}
+                            style={{
+                              width: r.id === '16:9' ? '28px' : r.id === '9:16' ? '16px' : r.id === '4:5' ? '18px' : r.id === '3:4' ? '18px' : '22px',
+                              height: r.id === '16:9' ? '16px' : r.id === '9:16' ? '28px' : r.id === '4:5' ? '22px' : r.id === '3:4' ? '24px' : '22px',
+                            }}
+                          />
+                        </div>
+                        <span className={`text-[10px] font-black ${isSelected ? 'text-orange-500' : theme === 'dark' ? 'text-gray-300' : 'text-slate-600'}`}>{r.label}</span>
+                        <span className={`text-[8px] font-bold leading-tight text-center ${theme === 'dark' ? 'text-gray-500' : 'text-slate-400'}`}>{r.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className={`mt-3 px-3 py-1.5 rounded-xl text-[10px] ${theme === 'dark' ? 'bg-gray-900 text-gray-400' : 'bg-slate-100 text-slate-500'}`}>
+                  <span className="opacity-60">ratio:</span>{' '}
+                  <span className="font-black text-orange-500">{selectedAspectRatio}</span>
+                  <span className="opacity-60 ml-2">— {ASPECT_RATIOS.find(r => r.id === selectedAspectRatio)?.desc}</span>
+                </div>
+              </div>
+
               <div className={`${theme === 'dark' ? 'bg-gray-800 border-gray-700 ring-gray-700' : 'bg-white border-slate-100 ring-slate-100'} p-10 rounded-[3rem] border shadow-2xl sticky top-24 ring-1`}>
                 <h3 className={`text-2xl font-black mb-8 uppercase tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>สไตล์ที่ต้องการ</h3>
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 gap-4">
-                    {STYLES.map(style => (
-                      <button
-                        key={style.id}
-                        onClick={() => setSelectedStyle(style.id)}
-                        className={`text-left p-6 rounded-[2rem] border-4 transition-all ${selectedStyle === style.id ? (theme === 'dark' ? 'border-orange-500 bg-orange-900/30 shadow-lg shadow-orange-900/30 scale-[1.02]' : 'border-orange-500 bg-orange-50 shadow-lg shadow-orange-100 scale-[1.02]') : (theme === 'dark' ? 'border-gray-700 hover:border-gray-600 hover:bg-gray-700' : 'border-slate-50 hover:border-slate-100 hover:bg-slate-50')}`}
-                      >
-                        <p className={`font-black text-lg tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{style.name}</p>
-                        <p className={`text-[10px] ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'} font-black uppercase tracking-widest mt-2`}>{style.desc}</p>
-                      </button>
-                    ))}
+                <div className="relative">
+                  {/* ===== SLOT MACHINE DRUM ROLLER ===== */}
+
+                  {/* Fade gradient top - reduced height to see more items */}
+                  <div className={`absolute top-0 left-0 right-0 h-10 z-10 pointer-events-none rounded-t-2xl ${theme === 'dark' ? 'bg-gradient-to-b from-gray-800 to-transparent' : 'bg-gradient-to-b from-white to-transparent'}`} />
+
+                  {/* Selection indicator overlay — correctly hugging the center frame */}
+                  <div className="absolute inset-0 z-20 pointer-events-none flex flex-col items-center justify-center">
+                    <button
+                      onClick={() => {
+                        const container = document.getElementById('style-roller');
+                        if (container) container.scrollBy({ top: -88, behavior: 'smooth' });
+                      }}
+                      className={`pointer-events-auto p-0.5 rounded-full transition-all hover:scale-125 mb-1 ${theme === 'dark' ? 'text-orange-400' : 'text-orange-500'}`}
+                    >
+                      <ChevronUp className="w-5 h-5" />
+                    </button>
+                    
+                    <div className="w-[calc(100%-2rem)] h-[88px] rounded-2xl border-2 border-orange-500 shadow-[0_0_30px_rgba(249,115,22,0.25),inset_0_0_30px_rgba(249,115,22,0.08)] bg-orange-500/5 pointer-events-none" />
+
+                    <button
+                      onClick={() => {
+                        const container = document.getElementById('style-roller');
+                        if (container) container.scrollBy({ top: 88, behavior: 'smooth' });
+                      }}
+                      className={`pointer-events-auto p-0.5 rounded-full transition-all hover:scale-125 mt-1 ${theme === 'dark' ? 'text-orange-400' : 'text-orange-500'}`}
+                    >
+                      <ChevronDown className="w-5 h-5" />
+                    </button>
                   </div>
+
+                  {/* Roller scroll container */}
+                  <div
+                    id="style-roller"
+                    className="h-[360px] overflow-y-auto scrollbar-hide snap-y snap-mandatory px-4"
+                    style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                    onScroll={(e) => {
+                      // Tick sound via Web Audio API
+                      const container = e.currentTarget;
+                      const scrollTop = container.scrollTop;
+                      const itemH = 88;
+                      const currentIdx = Math.round(scrollTop / itemH);
+                      const prevIdx = parseInt(container.dataset.prevIdx || '0');
+                      if (currentIdx !== prevIdx) {
+                        container.dataset.prevIdx = String(currentIdx);
+                        try {
+                          const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+                          const osc = audioCtx.createOscillator();
+                          const gain = audioCtx.createGain();
+                          osc.connect(gain);
+                          gain.connect(audioCtx.destination);
+                          osc.frequency.value = 800 + (currentIdx % 3) * 200;
+                          osc.type = 'sine';
+                          gain.gain.value = 0.05;
+                          gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.08);
+                          osc.start();
+                          osc.stop(audioCtx.currentTime + 0.08);
+                        } catch { /* ignore audio errors */ }
+                        // Auto-select the style in the center
+                        if (STYLES[currentIdx]) {
+                          setSelectedStyle(STYLES[currentIdx].id);
+                        }
+                      }
+                    }}
+                    ref={(el) => {
+                      if (el && !el.dataset.initialized) {
+                        el.dataset.initialized = 'true';
+                        // Scroll to selected style on mount
+                        const idx = STYLES.findIndex(s => s.id === selectedStyle);
+                        if (idx > 0) {
+                          setTimeout(() => { el.scrollTop = idx * 88; }, 100);
+                        }
+                        
+                        // Fix jumpy mouse wheel scroll (OS scrolls ~100px, but item is 88px)
+                        el.addEventListener('wheel', (e) => {
+                          e.preventDefault();
+                          // Force exactly one item (88px) jump per wheel tick
+                          el.scrollBy({ top: Math.sign(e.deltaY) * 88, behavior: 'smooth' });
+                        }, { passive: false });
+                      }
+                    }}
+                  >
+                    {/* Spacer top — so first item can reach center */}
+                    <div className="h-[136px] snap-start" />
+
+                    {STYLES.map((style, idx) => {
+                      const isActive = selectedStyle === style.id;
+                      return (
+                        <div
+                          key={style.id}
+                          className="snap-center h-[88px] flex items-center justify-center cursor-pointer"
+                          onClick={() => {
+                            setSelectedStyle(style.id);
+                            const container = document.getElementById('style-roller');
+                            if (container) container.scrollTo({ top: idx * 88, behavior: 'smooth' });
+                          }}
+                        >
+                          <div className={`w-full px-6 py-4 rounded-2xl transition-all duration-300 ${
+                            isActive
+                              ? 'scale-105'
+                              : 'opacity-40 scale-100 hover:opacity-60'
+                          }`}>
+                            <p className={`font-black text-lg tracking-tight text-center transition-colors duration-300 ${
+                              isActive
+                                ? style.color
+                                : theme === 'dark' ? 'text-gray-400' : 'text-slate-500'
+                            }`}>
+                              <span className="mr-2 text-xl">{style.emoji}</span>
+                              {style.name}
+                            </p>
+                            {isActive && (
+                              <p className={`text-[9px] font-bold uppercase tracking-widest text-center mt-1 ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'}`}>
+                                {style.desc}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Spacer bottom */}
+                    <div className="h-[136px] snap-start" />
+                  </div>
+
+
+
+                  {/* Fade gradient bottom - reduced height */}
+                  <div className={`absolute bottom-0 left-0 right-0 h-10 z-10 pointer-events-none rounded-b-2xl ${theme === 'dark' ? 'bg-gradient-to-t from-gray-800 to-transparent' : 'bg-gradient-to-t from-white to-transparent'}`} />
+
+                  {/* Decorative sparkle */}
+                  <div className="absolute bottom-4 right-4 z-20 opacity-40">
+                    <Sparkles className={`w-5 h-5 ${theme === 'dark' ? 'text-orange-400' : 'text-orange-300'}`} />
+                  </div>
+                </div>
+                <div className="space-y-4">
                   <div className={`${theme === 'dark' ? 'border-gray-700' : 'border-slate-100'} pt-8 border-t mt-6`}>
                     <button
                       onClick={startGeneration}
-                      disabled={isGenerating}
-                      className="w-full bg-slate-900 hover:bg-black text-white font-black py-6 rounded-[2rem] transition-all flex items-center justify-center gap-4 shadow-2xl group active:scale-95"
+                      disabled={isGenerating || selectedCategories.size === 0}
+                      className={`w-full font-black py-6 rounded-[2rem] transition-all flex items-center justify-center gap-4 shadow-2xl group active:scale-95 ${selectedCategories.size === 0
+                        ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                        : 'bg-slate-900 hover:bg-black text-white'
+                        }`}
                     >
-                      {isGenerating ? <Loader2 className="animate-spin w-6 h-6" /> : <Sparkles className="w-7 h-7 text-orange-400 group-hover:scale-125 transition-transform" />}
-                      สร้างภาพทั้งหมด
+                      {isGenerating ? <Loader2 className="animate-spin w-6 h-6" /> : <Sparkles className={`w-7 h-7 group-hover:scale-125 transition-transform ${selectedCategories.size === 0 ? 'text-slate-400' : 'text-orange-400'}`} />}
+                      {selectedCategories.size === 0
+                        ? 'เลือกหมวดหมู่ก่อน'
+                        : `สร้างภาพ ${selectedCategories.size} หมวดหมู่`}
                     </button>
                   </div>
                 </div>
@@ -840,10 +2009,18 @@ const App: React.FC = () => {
                     <button
                       onClick={handleDownloadAll}
                       disabled={isGenerating || isZipping || completedCount === 0}
-                      className="flex-1 px-8 py-4 bg-slate-900 text-white rounded-[1.5rem] hover:bg-black font-black text-xs flex items-center justify-center gap-3 shadow-xl disabled:bg-slate-200 disabled:shadow-none transition-all active:scale-95"
+                      className="flex-1 px-6 py-4 bg-slate-900 text-white rounded-[1.5rem] hover:bg-black font-black text-xs flex items-center justify-center gap-3 shadow-xl disabled:bg-slate-200 disabled:shadow-none transition-all active:scale-95"
                     >
                       {isZipping ? <Loader2 className="animate-spin w-5 h-5" /> : <FileArchive className="w-5 h-5" />}
                       โหลด ZIP
+                    </button>
+                    <button
+                      onClick={handleDownloadToFolder}
+                      disabled={isGenerating || isSavingToFolder || completedCount === 0}
+                      className="flex-1 px-6 py-4 bg-orange-500 text-white rounded-[1.5rem] hover:bg-orange-600 font-black text-xs flex items-center justify-center gap-3 shadow-xl disabled:bg-slate-200 disabled:shadow-none transition-all active:scale-95"
+                    >
+                      {isSavingToFolder ? <Loader2 className="animate-spin w-5 h-5" /> : <Download className="w-5 h-5" />}
+                      บันทึกลงโฟลเดอร์
                     </button>
                   </div>
                 </div>
@@ -884,6 +2061,18 @@ const App: React.FC = () => {
                         {img?.status === 'completed' && (
                           <div className="w-full h-full relative animate-in fade-in duration-1000">
                             <img src={img.url} alt={meta.title} className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110" />
+
+                            {/* Preview Button */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPreviewImage(img.url);
+                              }}
+                              className="absolute top-4 right-4 p-2.5 bg-black/30 hover:bg-black/50 text-white rounded-full backdrop-blur-md opacity-0 group-hover:opacity-100 transition-all z-20 hover:scale-110 active:scale-95"
+                              title="ดูภาพขนาดใหญ่"
+                            >
+                              <Eye className="w-5 h-5" />
+                            </button>
                             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex items-end p-10">
                               <div className="flex flex-col gap-4 w-full">
                                 <div className="bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/20">
@@ -923,6 +2112,43 @@ const App: React.FC = () => {
                                     </div>
                                   )}
                                 </div>
+                                {/* Cover Style Dropdown - แสดงเฉพาะ COVER */}
+                                {catKey === 'COVER' && (
+                                  <div className="mb-2">
+                                    <select
+                                      value={selectedCoverStyle || selectedStyle}
+                                      onChange={(e) => setSelectedCoverStyle(e.target.value)}
+                                      className="w-full text-[10px] p-2 rounded-xl bg-white/20 text-white border border-white/30 backdrop-blur-md font-bold"
+                                    >
+                                      {STYLES.map(style => (
+                                        <option key={style.id} value={style.id} className="bg-slate-800 text-white">
+                                          {style.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                )}
+
+                                {/* Social Proof Dropdown - แสดงเฉพาะ Social Proof category */}
+                                {catKey === 'SOCIAL_PROOF' && (
+                                  <div className="mb-2">
+                                    <select
+                                      value={selectedSocialProof[catKey] || 'unboxing-moment'}
+                                      onChange={(e) => setSelectedSocialProof(prev => ({
+                                        ...prev,
+                                        [catKey]: e.target.value
+                                      }))}
+                                      className="w-full text-[10px] p-2 rounded-xl bg-white/20 text-white border border-white/30 backdrop-blur-md font-bold"
+                                    >
+                                      {SOCIAL_PROOF_OPTIONS.map(opt => (
+                                        <option key={opt.id} value={opt.id} className="bg-slate-800 text-white">
+                                          {opt.name} - {opt.desc}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                )}
+
                                 {/* Lifestyle Dropdown - แสดงเฉพาะ Lifestyle categories */}
                                 {catKey.startsWith('LIFESTYLE_') && (
                                   <div className="mb-2">
@@ -942,6 +2168,65 @@ const App: React.FC = () => {
                                     </select>
                                   </div>
                                 )}
+                                {/* Tutorial Step Editor - แสดงเฉพาะ TUTORIAL */}
+                                {catKey === 'TUTORIAL' && (
+                                  <div className="mb-3 bg-white/10 backdrop-blur-md p-3 rounded-xl border border-white/20">
+                                    <p className="text-white text-[9px] font-black uppercase tracking-wider mb-2 flex items-center gap-1">
+                                      <LayoutGrid className="w-3 h-3" />
+                                      แก้ไข 4 ขั้นตอน
+                                    </p>
+                                    <div className="grid grid-cols-2 gap-2">
+                                      {tutorialStepPrompts.map((prompt, idx) => (
+                                        <input
+                                          key={idx}
+                                          type="text"
+                                          value={prompt}
+                                          onChange={(e) => {
+                                            const newPrompts = [...tutorialStepPrompts];
+                                            newPrompts[idx] = e.target.value;
+                                            setTutorialStepPrompts(newPrompts);
+                                          }}
+                                          className="w-full text-[9px] p-2 rounded-lg bg-white/20 text-white border border-white/30 placeholder:text-white/50"
+                                          placeholder={`Step ${idx + 1}`}
+                                        />
+                                      ))}
+                                    </div>
+                                    <button
+                                      onClick={() => regenerateImage(ImageCategory.TUTORIAL, JSON.stringify(tutorialStepPrompts))}
+                                      className="w-full mt-2 py-2 bg-green-500 hover:bg-green-600 text-white text-[10px] font-black rounded-lg transition-all flex items-center justify-center gap-1"
+                                    >
+                                      <RotateCcw className="w-3 h-3" />
+                                      สร้างใหม่ตาม Steps
+                                    </button>
+                                  </div>
+                                )}
+                                {/* Per-image Aspect Ratio Selector */}
+                                <div className="mb-3 bg-white/10 backdrop-blur-md p-3 rounded-2xl border border-white/20">
+                                  <p className="text-white text-[9px] font-black uppercase tracking-wider mb-2 flex items-center gap-1">
+                                    <LayoutGrid className="w-3 h-3" />
+                                    Ratio ภาพนี้ {imageAspectRatios[catKey] && imageAspectRatios[catKey] !== selectedAspectRatio ? <span className="text-orange-300 ml-1">(Override)</span> : ''}
+                                  </p>
+                                  <div className="flex gap-1.5">
+                                    {ASPECT_RATIOS.map(r => {
+                                      const currentRatio = imageAspectRatios[catKey] || selectedAspectRatio;
+                                      const isActiveRatio = currentRatio === r.id;
+                                      return (
+                                        <button
+                                          key={r.id}
+                                          onClick={() => setImageAspectRatios(prev => ({ ...prev, [catKey]: r.id }))}
+                                          title={`${r.name} — ${r.desc}`}
+                                          className={`flex-1 py-1.5 rounded-lg text-[9px] font-black transition-all ${isActiveRatio
+                                              ? 'bg-orange-500 text-white shadow-md'
+                                              : 'bg-white/20 text-white/80 hover:bg-white/30'
+                                            }`}
+                                        >
+                                          {r.label}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+
                                 <div className="flex gap-3">
                                   <button
                                     onClick={() => downloadSingleImage(img.url, meta.title)}
@@ -953,10 +2238,12 @@ const App: React.FC = () => {
                                     onClick={() => regenerateImage(
                                       catKey.startsWith('LIFESTYLE_')
                                         ? (selectedLifestyle[catKey] || catKey) as ImageCategory
-                                        : catKey as ImageCategory
+                                        : catKey as ImageCategory,
+                                      undefined,
+                                      catKey === 'COVER' ? (selectedCoverStyle || selectedStyle) : (catKey === 'SOCIAL_PROOF' ? (selectedSocialProof[catKey] || 'unboxing-moment') : undefined)
                                     )}
                                     className="p-4 bg-blue-500 hover:bg-blue-600 text-white font-black rounded-2xl text-[12px] shadow-2xl flex items-center justify-center transition-all active:scale-95"
-                                    title="Regenerate Image"
+                                    title={`Regenerate (${imageAspectRatios[catKey] || selectedAspectRatio})`}
                                   >
                                     <RotateCcw className="w-5 h-5" />
                                   </button>
@@ -987,13 +2274,25 @@ const App: React.FC = () => {
 
                         {/* Status: Idle / Blueprint */}
                         {(!img || img.status === 'idle') && (
-                          <div className="absolute inset-0 flex flex-col items-center justify-center gap-6 p-12 text-center opacity-40 group-hover:opacity-100 transition-all">
+                          <div
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!isGenerating) regenerateImage(catKey as ImageCategory);
+                            }}
+                            className="absolute inset-0 flex flex-col items-center justify-center gap-6 p-12 text-center opacity-40 group-hover:opacity-100 transition-all cursor-pointer hover:bg-white/5 hover:backdrop-blur-sm active:scale-95 duration-300 z-10"
+                          >
                             <div className={`w-24 h-24 rounded-[2.5rem] ${theme === 'dark' ? 'bg-gray-700' : 'bg-white'} flex items-center justify-center text-slate-200 group-hover:bg-orange-50 group-hover:text-orange-400 transition-all border-4 border-dashed ${theme === 'dark' ? 'border-gray-600' : 'border-slate-100'} shadow-inner group-hover:rotate-12`}>
                               <ImageIcon className="w-12 h-12" />
                             </div>
                             <div>
                               <p className={`text-sm font-black uppercase tracking-widest mb-2 ${theme === 'dark' ? 'text-white' : 'text-slate-500'}`}>โครงสร้างภาพที่ {meta.order}</p>
-                              <p className={`text-[10px] font-bold leading-relaxed px-6 italic ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'}`}>พิมพ์เขียวพร้อมใช้งาน <br />รอคิวประมวลผลถัดไป</p>
+                              <p className={`text-[10px] font-bold leading-relaxed px-6 italic ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'}`}>พิมพ์เขียวพร้อมใช้งาน <br />คลิกเพื่อสร้างภาพทันที</p>
+                            </div>
+
+                            <div className="absolute bottom-10 opacity-0 group-hover:opacity-100 transition-opacity animate-in slide-in-from-bottom-2">
+                              <span className={`text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-full shadow-lg ${theme === 'dark' ? 'bg-orange-500 text-white' : 'bg-slate-900 text-white'}`}>
+                                <Sparkles className="w-3 h-3 inline mr-1" /> Click to Generate
+                              </span>
                             </div>
                           </div>
                         )}
@@ -1060,7 +2359,7 @@ const App: React.FC = () => {
                           <h4 className={`font-black text-lg group-hover:text-orange-600 transition-colors uppercase tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{meta.title}</h4>
                         </div>
                         <p className={`text-xs font-bold leading-relaxed line-clamp-2 h-10 italic ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'}`}>
-                          " {meta.desc} "
+                          " {catKey === 'COVER' ? (STYLES.find(s => s.id === (selectedCoverStyle || selectedStyle))?.name || selectedStyleName) : meta.desc} "
                         </p>
                         <div className="mt-6 flex items-center gap-4">
                           <div className={`w-2 h-2 rounded-full ${strategy.color} shadow-sm`}></div>
@@ -1106,7 +2405,7 @@ const App: React.FC = () => {
               <Sparkles className="w-6 h-6 text-orange-400" />
             </div>
             <div>
-              <p className={`text-xs font-black uppercase tracking-[0.2em] ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>Shopee Master AI Suite</p>
+              <p className={`text-xs font-black uppercase tracking-[0.2em] ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>PicSeller AI Suite</p>
               <p className={`text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'}`}>Powered by Gemini 2.5 Flash Rendering</p>
             </div>
           </div>
@@ -1119,7 +2418,33 @@ const App: React.FC = () => {
           </div>
         </div>
       </footer>
-    </div >
+
+      {/* Image Preview Modal */}
+      {previewImage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setPreviewImage(null)}>
+          <div className="relative max-w-7xl max-h-[90vh] w-full h-full flex items-center justify-center" onClick={e => e.stopPropagation()}>
+            <img
+              src={previewImage}
+              alt="Full Preview"
+              className="max-w-full max-h-full object-contain rounded-2xl shadow-2xl"
+            />
+            <button
+              onClick={() => setPreviewImage(null)}
+              className="absolute top-4 right-4 p-3 bg-white/10 hover:bg-white/20 text-white rounded-full backdrop-blur-md transition-all active:scale-95"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+        </div>
+      )}
+      <ImageEditorModal
+        isOpen={editingImageParams !== null}
+        imageUrl={editingImageParams?.url || ''}
+        onClose={() => setEditingImageParams(null)}
+        onSave={handleSaveEditedImage}
+        removeBgApiHandler={callRemoveBgApi}
+      />
+    </div>
   );
 };
 
