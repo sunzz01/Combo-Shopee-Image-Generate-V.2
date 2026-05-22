@@ -49,6 +49,8 @@ export const MODEL_REGISTRY = {
    * imagen-3.0-generate-001        = Imagen 3 Standard (ใช้ generateImages API แยก)
    */
   image: [
+    'imagen-3.0-generate-002',       // Imagen 3 Standard (แนะนำสำหรับสร้างภาพทั่วไป)
+    'imagen-3.0-fast-generate-001',  // Imagen 3 Fast
     'gemini-2.5-flash-image',
     'gemini-3.1-flash-image-preview',
     'gemini-3-pro-image-preview',
@@ -71,6 +73,14 @@ function buildModelChain(selectedModel: string, fallbacks: string[]): string[] {
 /** สุ่มเลือก 1 รายการจาก array */
 function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
+}
+
+/** เลือก style จาก index (0=random, 1-N=specific) */
+function pickStyle<T>(arr: T[], styleIndex?: number): T {
+  if (styleIndex && styleIndex >= 1 && styleIndex <= arr.length) {
+    return arr[styleIndex - 1];
+  }
+  return pickRandom(arr);
 }
 
 // ─── INFOGRAPHIC Variations (6 สไตล์) ────────────────────────────
@@ -1038,12 +1048,13 @@ export const generateProductImage = async (
   style: string,
   customPrompt?: string,  // เพิ่มพารามิเตอร์สำหรับ custom prompt
   imageModel: string = 'gemini-2.5-flash-image',  // รองรับการเลือกโมเดล (Nano Banana default)
-  aspectRatio: string = '1:1'  // อัตราส่วนภาพ default 1:1
+  aspectRatio: string = '1:1',  // อัตราส่วนภาพ default 1:1
+  styleIndex?: number  // สไตล์เจาะจง (0=random, 1-6=specific variation)
 ): Promise<ImageGenerationResult> => {
   // ─── Vertex AI Mode: call serverless API ────────────────────
   if (USE_VERTEX_AI) {
     console.log('[generateProductImage] Using Vertex AI API route');
-    return apiGenerateProductImage(category, productData, style, customPrompt, imageModel, aspectRatio);
+    return apiGenerateProductImage(category, productData, style, customPrompt, imageModel, aspectRatio, styleIndex);
   }
 
   // ─── Direct Gemini API Mode (Development) ───────────────────
@@ -1072,7 +1083,7 @@ LOCALIZATION (TH):
       }
       break;
     case ImageCategory.INFOGRAPHIC:
-      promptSuffix = pickRandom(INFOGRAPHIC_VARIATIONS)(productData.features);
+      promptSuffix = pickStyle(INFOGRAPHIC_VARIATIONS, styleIndex)(productData.features);
       break;
     case ImageCategory.CLOSE_UP:
       promptSuffix = `Macro extreme close-up shot of the exact product shown in the reference image. Focus strictly on material texture and high-quality details WITHOUT altering the physical structure, shape, or placement of components (like screws, details, text). The product's anatomy and mechanical parts must remain 100% identical to the reference. Soft bokeh background, professional studio lighting.`;
@@ -1102,7 +1113,7 @@ LOCALIZATION (TH):
       promptSuffix = `Lifestyle photography of the product in a local Thai restaurant. Small family-owned restaurant, simple interior, tables with Thai food dishes, daily business atmosphere, authentic local dining environment, warm realistic lighting. realistic, candid, unstaged, real usage, no studio setup, no luxury kitchen, no showroom, no stock photo look`;
       break;
     case ImageCategory.SIZE_CHART:
-      promptSuffix = pickRandom(SIZE_CHART_VARIATIONS)(productData.name);
+      promptSuffix = pickStyle(SIZE_CHART_VARIATIONS, styleIndex)(productData.name);
       break;
     case ImageCategory.SOCIAL_PROOF:
       // แบ่งเป็น 4 sub-categories สำหรับ A/B testing
@@ -1193,7 +1204,7 @@ LOCALIZATION (TH):
           console.warn("Failed to parse tutorial prompts, using defaults");
         }
       }
-      promptSuffix = pickRandom(TUTORIAL_VARIATIONS)(tutorialSteps);
+      promptSuffix = pickStyle(TUTORIAL_VARIATIONS, styleIndex)(tutorialSteps);
       break;
   }
 
@@ -1242,32 +1253,52 @@ Use the provided source images to ensure the product looks accurate and consiste
   try {
     return await smartRetry(async (modelName, ai) => {
       console.log(`[generateProductImage] Using model: ${modelName}`);
-      const response = await ai.models.generateContent({
-        model: modelName,
-        contents: {
-          parts: [
-            ...imageParts,
-            { text: prompt }
-          ],
-        },
-        config: {
-          responseModalities: ['Text', 'Image'],
-          generationConfig: {
-            responseModalities: ['Text', 'Image'],
-          } as any,
-        } as any,
-      });
-
-      let geminiTextResponse = '';
       let imageUrl = '';
+      let geminiTextResponse = '';
 
-      if (response.candidates && response.candidates[0]?.content?.parts) {
-        for (const part of response.candidates[0].content.parts) {
-          if (part.inlineData) {
-            imageUrl = `data:image/png;base64,${part.inlineData.data}`;
+      if (modelName.startsWith('imagen-')) {
+        // ─── Imagen 3 API (Direct Mode) ───────────────────────────────────
+        const response = await ai.models.generateImages({
+          model: modelName,
+          prompt: prompt,
+          config: {
+            numberOfImages: 1,
+            aspectRatio: aspectRatio as any,
+          },
+        });
+
+        if (response.generatedImages && response.generatedImages.length > 0) {
+          const img = response.generatedImages[0].image;
+          if (img?.imageBytes) {
+            imageUrl = `data:image/png;base64,${img.imageBytes}`;
           }
-          if (part.text) {
-            geminiTextResponse = part.text;
+        }
+      } else {
+        // ─── Gemini Multimodal Content Gen (Direct Mode) ───────────────────
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: {
+            parts: [
+              ...imageParts,
+              { text: prompt }
+            ],
+          },
+          config: {
+            responseModalities: ['Text', 'Image'],
+            generationConfig: {
+              responseModalities: ['Text', 'Image'],
+            } as any,
+          } as any,
+        });
+
+        if (response.candidates && response.candidates[0]?.content?.parts) {
+          for (const part of response.candidates[0].content.parts) {
+            if (part.inlineData) {
+              imageUrl = `data:image/png;base64,${part.inlineData.data}`;
+            }
+            if (part.text) {
+              geminiTextResponse = part.text;
+            }
           }
         }
       }

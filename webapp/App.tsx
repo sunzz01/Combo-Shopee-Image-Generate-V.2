@@ -47,6 +47,7 @@ import NotificationSystem from './src/components/NotificationSystem';
 import { useAuth } from './src/contexts/AuthContext';
 import { saveToDB, loadFromDB } from './src/utils/storage'; // Persistence
 import { ImageEditorModal } from './src/components/ImageEditorModal';
+import LoginPage from './src/components/LoginPage';
 
 const STYLES = [
   {
@@ -234,6 +235,28 @@ const STYLES = [
 // โมเดล Gemini ที่ใช้สำหรับสร้างภาพ
 const GEMINI_IMAGE_MODELS = [
   {
+    id: 'imagen-3.0-generate-002',
+    name: 'Imagen 3 Generate',
+    badge: '👑 RECOMMENDED',
+    badgeColor: 'bg-gradient-to-r from-amber-500 to-yellow-400 text-black font-bold',
+    desc: 'โมเดลสร้างภาพคุณภาพสูงของ Google (แนะนํา)',
+    borderColor: 'border-amber-500',
+    glowColor: 'shadow-amber-500/40',
+    textColor: 'text-amber-400',
+    iconBg: 'from-amber-500 to-yellow-400',
+  },
+  {
+    id: 'imagen-3.0-fast-generate-001',
+    name: 'Imagen 3 Fast',
+    badge: '⚡ FAST',
+    badgeColor: 'bg-blue-600 text-white font-bold',
+    desc: 'สร้างภาพเร็ว คุณภาพดี เหมาะกับการทดสอบ',
+    borderColor: 'border-blue-500',
+    glowColor: 'shadow-blue-500/40',
+    textColor: 'text-blue-400',
+    iconBg: 'from-blue-500 to-cyan-400',
+  },
+  {
     id: 'gemini-3.1-flash-image-preview',
     name: 'Gemini 3.1 Flash Image Preview',
     badge: '🔥 NEW',
@@ -265,17 +288,6 @@ const GEMINI_IMAGE_MODELS = [
     glowColor: 'shadow-purple-500/40',
     textColor: 'text-purple-400',
     iconBg: 'from-purple-600 to-violet-500',
-  },
-  {
-    id: 'gemini-3-flash-preview',
-    name: 'Gemini 3 Flash Preview',
-    badge: 'Fast',
-    badgeColor: 'bg-gradient-to-r from-teal-500 to-green-400',
-    desc: 'เร็ว เบา เหมาะกับงาน Text + Image',
-    borderColor: 'border-teal-500',
-    glowColor: 'shadow-teal-500/40',
-    textColor: 'text-teal-400',
-    iconBg: 'from-teal-500 to-green-400',
   },
 ];
 
@@ -320,7 +332,7 @@ const App: React.FC = () => {
   const [summaryLength, setSummaryLength] = useState<'short' | 'medium' | 'long'>('medium');
   const [isSavingToFolder, setIsSavingToFolder] = useState(false);
   const [selectedStyle, setSelectedStyle] = useState<string>('aliexpress');
-  const [selectedImageModel, setSelectedImageModel] = useState<string>('gemini-3.1-flash-image-preview'); // โมเดลสำหรับสร้างภาพ
+  const [selectedImageModel, setSelectedImageModel] = useState<string>('imagen-3.0-generate-002'); // โมเดลสำหรับสร้างภาพ
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [isScrapingOnly, setIsScrapingOnly] = useState<boolean>(false);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
@@ -347,6 +359,11 @@ const App: React.FC = () => {
 
   // เพิ่ม state สำหรับเลือก Social Proof Variant สำหรับ Regenerate
   const [selectedSocialProof, setSelectedSocialProof] = useState<{ [key: string]: string }>({});
+
+  // Style override states สำหรับ INFOGRAPHIC, SIZE_CHART, TUTORIAL
+  const [selectedInfographicStyle, setSelectedInfographicStyle] = useState<{ [key: string]: string }>({});
+  const [selectedSizeChartStyle, setSelectedSizeChartStyle] = useState<{ [key: string]: string }>({});
+  const [selectedTutorialStyle, setSelectedTutorialStyle] = useState<{ [key: string]: string }>({});
 
   // เพิ่ม state สำหรับเลือกหมวดหมู่ที่ต้องการ generate
   const [selectedCategories, setSelectedCategories] = useState<Set<ImageCategory>>(new Set(Object.keys(IMAGE_CATEGORIES_METADATA) as ImageCategory[]));
@@ -388,6 +405,37 @@ const App: React.FC = () => {
     { id: 'just-arrived', name: 'Just Arrived', desc: 'สินค้าเพิ่งส่งถึงบ้าน' },
     { id: 'happy-customer', name: 'Happy Customer', desc: 'ลูกค้าถือสินค้าด้วยความสุข' },
     { id: 'in-use-lifestyle', name: 'In-use Lifestyle', desc: 'การใช้งานจริงในชีวิตประจำวัน' },
+  ];
+
+  // ─── Style Options สำหรับหมวดที่สุ่ม prompt ──────────────────────
+  const INFOGRAPHIC_STYLE_OPTIONS = [
+    { id: '0', name: '🎲 สุ่มอัตโนมัติ', desc: 'ระบบจะสุ่มสไตล์ให้' },
+    { id: '1', name: 'Modern Flat', desc: 'พื้นหลัง gradient + icon แบน' },
+    { id: '2', name: 'Dark Premium', desc: 'พื้นดำ + accent สีทอง/นีออน' },
+    { id: '3', name: 'Magazine/Editorial', desc: 'สไตล์นิตยสารหรู' },
+    { id: '4', name: 'Isometric 3D', desc: 'สไตล์ isometric มุมสูง' },
+    { id: '5', name: 'Split Color Block', desc: 'แบ่งซีกสี 2 สี' },
+    { id: '6', name: 'Minimalist Data', desc: 'มินิมอล เน้นข้อมูล' },
+  ];
+
+  const SIZE_CHART_STYLE_OPTIONS = [
+    { id: '0', name: '🎲 สุ่มอัตโนมัติ', desc: 'ระบบจะสุ่มสไตล์ให้' },
+    { id: '1', name: 'Clean Comparison Grid', desc: 'ตารางเทียบขนาดสะอาดตา' },
+    { id: '2', name: 'Lifestyle Scale Shot', desc: 'ถ่ายเทียบขนาดในชีวิตจริง' },
+    { id: '3', name: 'Technical Blueprint', desc: 'สเก็ตช์เทคนิคสไตล์พิมพ์เขียว' },
+    { id: '4', name: 'Fun Comparison', desc: 'เทียบขนาดสนุกๆ กับของรอบข้าง' },
+    { id: '5', name: 'Size Variants', desc: 'แสดงหลายขนาด S/M/L' },
+    { id: '6', name: 'Flat Lay with Ruler', desc: 'ถ่ายมุมบนพร้อมไม้บรรทัด' },
+  ];
+
+  const TUTORIAL_STYLE_OPTIONS = [
+    { id: '0', name: '🎲 สุ่มอัตโนมัติ', desc: 'ระบบจะสุ่มสไตล์ให้' },
+    { id: '1', name: '2×2 Grid', desc: 'ตาราง 2x2 คลาสสิก' },
+    { id: '2', name: 'Horizontal Timeline', desc: 'Timeline แนวนอน' },
+    { id: '3', name: 'Magazine Spread', desc: 'สไตล์นิตยสาร' },
+    { id: '4', name: 'Dark Tech', desc: 'สไตล์เทคโนโลยีมืด' },
+    { id: '5', name: 'Hand-drawn / Sketch', desc: 'สไตล์วาดมือ/สเก็ตช์' },
+    { id: '6', name: 'Vertical Scroll Story', desc: 'สไตล์ Story/Reels แนวตั้ง' },
   ];
 
   const { theme, toggleTheme } = useTheme(); // ใช้ hook สำหรับจัดการธีม
@@ -803,7 +851,19 @@ const App: React.FC = () => {
         const customPromptForTutorial = cat === ImageCategory.TUTORIAL
           ? JSON.stringify(tutorialStepPrompts)
           : undefined;
-        const result = await generateProductImage(cat, productData, selectedStyle, customPromptForTutorial, selectedImageModel, imageAspectRatios[cat] || selectedAspectRatio);
+        // คำนวณ styleIndex สำหรับหมวดที่รองรับการเลือกสไตล์
+        let styleIdx: number | undefined;
+        if (cat === ImageCategory.INFOGRAPHIC) {
+          const val = selectedInfographicStyle[cat] || '0';
+          styleIdx = parseInt(val) || undefined;
+        } else if (cat === ImageCategory.SIZE_CHART) {
+          const val = selectedSizeChartStyle[cat] || '0';
+          styleIdx = parseInt(val) || undefined;
+        } else if (cat === ImageCategory.TUTORIAL) {
+          const val = selectedTutorialStyle[cat] || '0';
+          styleIdx = parseInt(val) || undefined;
+        }
+        const result = await generateProductImage(cat, productData, selectedStyle, customPromptForTutorial, selectedImageModel, imageAspectRatios[cat] || selectedAspectRatio, styleIdx);
         setGeneratedImages(prev => prev.map(p => p.category === cat ? { ...p, url: result.imageUrl, status: 'completed', thaiTexts: result.thaiTexts, promptUsed: result.promptUsed } : p));
         successCount++;
       } catch (err) {
@@ -822,7 +882,7 @@ const App: React.FC = () => {
   };
 
   // ฟังก์ชัน Regenerate สำหรับภาพเดี่ยว
-  const regenerateImage = async (category: ImageCategory, customPrompt?: string, styleOverride?: string) => {
+  const regenerateImage = async (category: ImageCategory, customPrompt?: string, styleOverride?: string, styleIndex?: number) => {
     // อัปเดตจำนวนครั้งที่พยายามสร้างใหม่
     setRegenerationAttempts(prev => ({
       ...prev,
@@ -871,7 +931,7 @@ const App: React.FC = () => {
       const attemptCount = regenerationAttempts[category] || 1;
       const styleToUse = styleOverride || selectedStyle;
       const ratio = imageAspectRatios[category] || selectedAspectRatio;
-      const result = await generateProductImage(category, productData, styleToUse, customPrompt, selectedImageModel, ratio);
+      const result = await generateProductImage(category, productData, styleToUse, customPrompt, selectedImageModel, ratio, styleIndex);
 
       // อัปเดตเฉพาะภาพที่เลือก
       setGeneratedImages(prev => prev.map(img =>
@@ -1291,6 +1351,23 @@ const App: React.FC = () => {
 
   const selectedStyleName = STYLES.find(s => s.id === selectedStyle)?.name || 'Available Style';
 
+  // ==========================================
+  // LOGIN SCREEN — Show when user is not authenticated
+  // ==========================================
+  if (!user) {
+    return (
+      <>
+        <LoginPage
+          onLogin={login}
+          onRegister={register}
+          onGoogleLogin={() => loginWithSocial('google')}
+          isLoading={authLoading}
+        />
+        <NotificationSystem notifications={notifications} removeNotification={removeNotification} />
+      </>
+    );
+  }
+
   return (
     <div className={`min-h-screen flex flex-col ${theme === 'dark' ? 'bg-gray-900 text-white' : 'bg-[#F8FAFC] text-slate-900'}`}>
       <header className={`${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-slate-200'} sticky top-0 z-50 px-6 py-4 flex items-center justify-between shadow-sm`}>
@@ -1322,14 +1399,110 @@ const App: React.FC = () => {
           ))}
         </nav>
 
-        {/* ปุ่มสลับธีม */}
-        <button
-          onClick={toggleTheme}
-          className={`p-2 rounded-xl ${theme === 'dark' ? 'bg-gray-700 text-yellow-300 hover:bg-gray-600' : 'bg-slate-100 text-gray-700 hover:bg-slate-200'} transition-colors`}
-          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-        >
-          {theme === 'dark' ? <Sun className="w-6 h-6" /> : <Moon className="w-6 h-6" />}
-        </button>
+        {/* ส่วน User Profile + Theme Toggle + Logout */}
+        <div className="flex items-center gap-3">
+          {/* ปุ่มสลับธีม */}
+          <button
+            onClick={toggleTheme}
+            className={`p-2 rounded-xl ${theme === 'dark' ? 'bg-gray-700 text-yellow-300 hover:bg-gray-600' : 'bg-slate-100 text-gray-700 hover:bg-slate-200'} transition-colors`}
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+          </button>
+
+          {/* User Avatar + Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowProfileDropdown(!showProfileDropdown)}
+              className={`flex items-center gap-3 p-2 pr-4 rounded-2xl transition-all ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-slate-100 hover:bg-slate-200'} ${showProfileDropdown ? (theme === 'dark' ? 'bg-gray-600' : 'bg-slate-200') : ''}`}
+            >
+              <div className="w-9 h-9 rounded-xl overflow-hidden bg-orange-500 flex items-center justify-center text-white font-black text-sm shadow-lg shadow-orange-500/20">
+                {user.avatar ? (
+                  <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
+                ) : (
+                  user.name.charAt(0).toUpperCase()
+                )}
+              </div>
+              <div className="hidden md:block text-left">
+                <p className={`text-xs font-black leading-tight ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{user.name}</p>
+                <p className={`text-[9px] font-bold uppercase tracking-wider ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'}`}>
+                  {user.tier === 'free' ? 'Free' : user.tier === 'starter' ? 'Starter' : user.tier === 'pro' ? 'Pro' : 'Enterprise'} • {user.credits} credits
+                </p>
+              </div>
+              <ChevronDown className={`w-4 h-4 transition-transform ${showProfileDropdown ? 'rotate-180' : ''} ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'}`} />
+            </button>
+
+            {/* Dropdown Menu */}
+            {showProfileDropdown && (
+              <>
+                {/* Backdrop */}
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setShowProfileDropdown(false)}
+                />
+                {/* Menu */}
+                <div className={`absolute right-0 top-full mt-2 w-64 z-50 rounded-2xl shadow-2xl border overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200 ${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-slate-100'}`}>
+                  {/* User Info Header */}
+                  <div className={`px-5 py-4 border-b ${theme === 'dark' ? 'border-gray-700' : 'border-slate-100'}`}>
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-xl overflow-hidden bg-orange-500 flex items-center justify-center text-white font-black text-lg shadow-lg shadow-orange-500/20">
+                        {user.avatar ? (
+                          <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
+                        ) : (
+                          user.name.charAt(0).toUpperCase()
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm font-black truncate ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{user.name}</p>
+                        <p className={`text-xs font-bold truncate ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'}`}>{user.email}</p>
+                      </div>
+                    </div>
+                    <div className={`mt-3 flex items-center gap-2 px-3 py-2 rounded-xl ${theme === 'dark' ? 'bg-gray-700' : 'bg-slate-50'}`}>
+                      <Zap className="w-4 h-4 text-orange-500" />
+                      <span className={`text-xs font-black ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{user.credits} credits</span>
+                      <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ml-auto ${theme === 'dark' ? 'bg-orange-500/20 text-orange-400' : 'bg-orange-50 text-orange-600'}`}>
+                        {user.tier.toUpperCase()}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Menu Items */}
+                  <div className="py-2">
+                    <button
+                      onClick={() => { setShowProfileDropdown(false); }}
+                      className={`w-full flex items-center gap-3 px-5 py-3 text-sm font-bold transition-colors ${theme === 'dark' ? 'text-gray-300 hover:bg-gray-700 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
+                    >
+                      <User className="w-4 h-4" />
+                      โปรไฟล์ของฉัน
+                    </button>
+                    <button
+                      onClick={() => { setShowProfileDropdown(false); setShowSettings(true); }}
+                      className={`w-full flex items-center gap-3 px-5 py-3 text-sm font-bold transition-colors ${theme === 'dark' ? 'text-gray-300 hover:bg-gray-700 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
+                    >
+                      <Settings className="w-4 h-4" />
+                      ตั้งค่า
+                    </button>
+                  </div>
+
+                  {/* Logout Button */}
+                  <div className={`px-3 pb-3`}>
+                    <button
+                      onClick={() => { setShowProfileDropdown(false); logout(); }}
+                      className={`w-full flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-black transition-all ${
+                        theme === 'dark'
+                          ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20'
+                          : 'bg-red-50 text-red-500 hover:bg-red-100 border border-red-100'
+                      }`}
+                    >
+                      <LogOut className="w-4 h-4" />
+                      ออกจากระบบ
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       </header>
 
       <main className="flex-1 max-w-7xl mx-auto w-full p-6">
@@ -2149,6 +2322,66 @@ const App: React.FC = () => {
                                   </div>
                                 )}
 
+                                {/* Infographic Style Dropdown - แสดงเฉพาะ INFOGRAPHIC */}
+                                {catKey === 'INFOGRAPHIC' && (
+                                  <div className="mb-2">
+                                    <select
+                                      value={selectedInfographicStyle[catKey] || '0'}
+                                      onChange={(e) => setSelectedInfographicStyle(prev => ({
+                                        ...prev,
+                                        [catKey]: e.target.value
+                                      }))}
+                                      className="w-full text-[10px] p-2 rounded-xl bg-white/20 text-white border border-white/30 backdrop-blur-md font-bold"
+                                    >
+                                      {INFOGRAPHIC_STYLE_OPTIONS.map(opt => (
+                                        <option key={opt.id} value={opt.id} className="bg-slate-800 text-white">
+                                          {opt.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                )}
+
+                                {/* Size Chart Style Dropdown - แสดงเฉพาะ SIZE_CHART */}
+                                {catKey === 'SIZE_CHART' && (
+                                  <div className="mb-2">
+                                    <select
+                                      value={selectedSizeChartStyle[catKey] || '0'}
+                                      onChange={(e) => setSelectedSizeChartStyle(prev => ({
+                                        ...prev,
+                                        [catKey]: e.target.value
+                                      }))}
+                                      className="w-full text-[10px] p-2 rounded-xl bg-white/20 text-white border border-white/30 backdrop-blur-md font-bold"
+                                    >
+                                      {SIZE_CHART_STYLE_OPTIONS.map(opt => (
+                                        <option key={opt.id} value={opt.id} className="bg-slate-800 text-white">
+                                          {opt.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                )}
+
+                                {/* Tutorial Style Dropdown - แสดงเฉพาะ TUTORIAL (ก่อน Step Editor) */}
+                                {catKey === 'TUTORIAL' && (
+                                  <div className="mb-2">
+                                    <select
+                                      value={selectedTutorialStyle[catKey] || '0'}
+                                      onChange={(e) => setSelectedTutorialStyle(prev => ({
+                                        ...prev,
+                                        [catKey]: e.target.value
+                                      }))}
+                                      className="w-full text-[10px] p-2 rounded-xl bg-white/20 text-white border border-white/30 backdrop-blur-md font-bold"
+                                    >
+                                      {TUTORIAL_STYLE_OPTIONS.map(opt => (
+                                        <option key={opt.id} value={opt.id} className="bg-slate-800 text-white">
+                                          {opt.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                )}
+
                                 {/* Lifestyle Dropdown - แสดงเฉพาะ Lifestyle categories */}
                                 {catKey.startsWith('LIFESTYLE_') && (
                                   <div className="mb-2">
@@ -2235,13 +2468,29 @@ const App: React.FC = () => {
                                     <Download className="w-5 h-5" /> บันทึกภาพ
                                   </button>
                                   <button
-                                    onClick={() => regenerateImage(
-                                      catKey.startsWith('LIFESTYLE_')
-                                        ? (selectedLifestyle[catKey] || catKey) as ImageCategory
-                                        : catKey as ImageCategory,
-                                      undefined,
-                                      catKey === 'COVER' ? (selectedCoverStyle || selectedStyle) : (catKey === 'SOCIAL_PROOF' ? (selectedSocialProof[catKey] || 'unboxing-moment') : undefined)
-                                    )}
+                                    onClick={() => {
+                                      // คำนวณ styleIndex สำหรับหมวดที่รองรับการเลือกสไตล์
+                                      let styleIdx: number | undefined;
+                                      if (catKey === 'INFOGRAPHIC') {
+                                        const val = selectedInfographicStyle[catKey] || '0';
+                                        styleIdx = parseInt(val) || undefined;
+                                      } else if (catKey === 'SIZE_CHART') {
+                                        const val = selectedSizeChartStyle[catKey] || '0';
+                                        styleIdx = parseInt(val) || undefined;
+                                      } else if (catKey === 'TUTORIAL') {
+                                        const val = selectedTutorialStyle[catKey] || '0';
+                                        styleIdx = parseInt(val) || undefined;
+                                      }
+
+                                      regenerateImage(
+                                        catKey.startsWith('LIFESTYLE_')
+                                          ? (selectedLifestyle[catKey] || catKey) as ImageCategory
+                                          : catKey as ImageCategory,
+                                        catKey === 'TUTORIAL' ? JSON.stringify(tutorialStepPrompts) : undefined,
+                                        catKey === 'COVER' ? (selectedCoverStyle || selectedStyle) : (catKey === 'SOCIAL_PROOF' ? (selectedSocialProof[catKey] || 'unboxing-moment') : undefined),
+                                        styleIdx
+                                      );
+                                    }}
                                     className="p-4 bg-blue-500 hover:bg-blue-600 text-white font-black rounded-2xl text-[12px] shadow-2xl flex items-center justify-center transition-all active:scale-95"
                                     title={`Regenerate (${imageAspectRatios[catKey] || selectedAspectRatio})`}
                                   >
