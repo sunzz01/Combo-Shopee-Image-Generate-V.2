@@ -146,8 +146,12 @@ interface ApiError {
     solution: string;
 }
 
-const parseGeminiError = (error: any): ApiError => {
-    const errorMessage = error?.message || error?.toString() || '';
+const getErrorMessage = (error: unknown): string => (
+    error instanceof Error ? error.message : String(error)
+);
+
+const parseGeminiError = (error: unknown): ApiError => {
+    const errorMessage = getErrorMessage(error);
 
     // API Key Error
     if (errorMessage.includes('API_KEY_INVALID') || errorMessage.includes('invalid API key') || errorMessage.includes('400')) {
@@ -229,7 +233,7 @@ export const analyzeProduct = async (
     }
 
     const modelsToTry = [selectedModelConfig.realModelName, "gemini-1.5-flash", "gemini-1.5-pro"];
-    let lastError: any = null;
+    let lastError: unknown = null;
 
     for (const modelName of modelsToTry) {
         try {
@@ -256,9 +260,9 @@ export const analyzeProduct = async (
             );
 
             return await handleAiResponse(response);
-        } catch (error: any) {
+        } catch (error: unknown) {
             lastError = error;
-            console.warn(`❌ Gemini Model ${modelName} failed:`, error.message);
+            console.warn(`❌ Gemini Model ${modelName} failed:`, getErrorMessage(error));
         }
     }
 
@@ -315,9 +319,9 @@ async function analyzeWithThirdParty(
         });
 
         return await handleAiResponse(response);
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('❌ Third-party Analysis Failed:', error);
-        throw new Error(`การวิเคราะห์ล้มเหลว: ${error.message}\n(ตรวจสอบว่า API URL ในหน้าตั้งค่าเป็น https://api.phaya.io/api/v1/chat/completions)`);
+        throw new Error(`การวิเคราะห์ล้มเหลว: ${getErrorMessage(error)}\n(ตรวจสอบว่า API URL ในหน้าตั้งค่าเป็น https://api.phaya.io/api/v1/chat/completions)`);
     }
 }
 
@@ -407,7 +411,7 @@ export const testApiKey = async (apiKey: string): Promise<{ success: boolean; me
             success: true,
             message: '✅ API Key ใช้งานได้ปกติครับ!'
         };
-    } catch (error: any) {
+    } catch (error: unknown) {
         const apiError = parseGeminiError(error);
         return {
             success: false,

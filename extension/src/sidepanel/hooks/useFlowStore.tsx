@@ -76,7 +76,7 @@ function appReducer(state: AppState, action: Action): AppState {
             return { ...state, scannedImages: action.payload };
         case 'SET_SCRAPED_CONTENT':
             return { ...state, scrapedContent: action.payload };
-        case 'TOGGLE_IMAGE_SELECTION':
+        case 'TOGGLE_IMAGE_SELECTION': {
             const isSelected = state.selectedImages.includes(action.payload);
             return {
                 ...state,
@@ -84,6 +84,7 @@ function appReducer(state: AppState, action: Action): AppState {
                     ? state.selectedImages.filter((id) => id !== action.payload)
                     : [...state.selectedImages, action.payload],
             };
+        }
         case 'SET_ANALYSIS_RESULT':
             return { ...state, analysisResult: action.payload };
         case 'SET_GENERATED_PROMPTS':
@@ -154,6 +155,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAppFlow() {
     const context = useContext(AppContext);
     if (context === undefined) {

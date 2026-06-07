@@ -69,7 +69,7 @@ export function installFrontendSecurityGuard() {
     if (url) {
       const method = init?.method || (input instanceof Request ? input.method : 'GET');
       const headers = init?.headers || (input instanceof Request ? input.headers : undefined);
-      const d = decide(url, method, headers as any);
+      const d = decide(url, method, headers);
 
       if (d.isExternal) {
         console.warn('[SECURITY] Frontend attempted external request', {
@@ -84,8 +84,8 @@ export function installFrontendSecurityGuard() {
       }
     }
 
-    return originalFetch(input as any, init);
-  }) as any;
+    return originalFetch(input, init);
+  });
 
   const OriginalXHR = window.XMLHttpRequest;
   function GuardedXHR(this: XMLHttpRequest) {
@@ -106,7 +106,7 @@ export function installFrontendSecurityGuard() {
           throw new Error(`[SECURITY] Blocked external API XHR from frontend: ${parsed.toString()} (${d.reason})`);
         }
       }
-      return originalOpen(method, url as any, async ?? true, username ?? undefined, password ?? undefined);
+      return originalOpen(method, url, async ?? true, username ?? undefined, password ?? undefined);
     };
     return xhr;
   }

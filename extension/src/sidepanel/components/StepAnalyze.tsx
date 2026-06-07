@@ -291,7 +291,7 @@ export function StepAnalyze() {
                             const productUrl = tab?.url || '';
 
                             await chrome.runtime.sendMessage({
-                                type: 'SEND_TO_SHOPEE_MASTER',
+                                type: 'SEND_TO_PICSELLER',
                                 payload: {
                                     productUrl,
                                     productName: analysisResult?.product_name || '',

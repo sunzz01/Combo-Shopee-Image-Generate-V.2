@@ -72,7 +72,12 @@ export type MessageType =
         type: 'GENERATE_IMAGE_PHAYA';
         payload: {
             prompt: string;
-            options?: any;
+            options?: {
+                image_input?: string[];
+                aspect_ratio?: string;
+                resolution?: '1K' | '2K' | '4K';
+                output_format?: 'png' | 'jpg';
+            };
         }
     };
 

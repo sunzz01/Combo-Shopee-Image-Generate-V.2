@@ -1,5 +1,18 @@
 import type { ProductAnalysis, ImageStyle, GeneratedPrompt } from "../types";
 
+type JsonObject = Record<string, unknown>;
+type PhayaHistoryItem = JsonObject;
+
+const asJsonObject = (value: unknown): JsonObject => (
+    value && typeof value === 'object' ? value as JsonObject : {}
+);
+
+const getNestedMessage = (value: unknown, fallback: string): string => {
+    const obj = asJsonObject(value);
+    const error = asJsonObject(obj.error);
+    return typeof error.message === 'string' ? error.message : fallback;
+};
+
 const STYLE_PROMPTS: Record<ImageStyle, string> = {
     Minimalist: "clean background, soft lighting, minimal props, high key photography, pastel tones",
     Luxury: "dark elegant background, gold accents, dramatic lighting, premium texture, expensive look, 8k resolution",
@@ -101,12 +114,12 @@ export const callPhayaImageGen = async (
         });
 
         if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail || 'การสร้างภาพด้วย Phaya.io ล้มเหลว');
+            const error = asJsonObject(await response.json());
+            throw new Error(typeof error.detail === 'string' ? error.detail : 'การสร้างภาพด้วย Phaya.io ล้มเหลว');
         }
 
         return await response.json();
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Phaya API Error:', error);
         throw error;
     }
@@ -146,7 +159,7 @@ export const pollPhayaJobStatus = async (
             // Wait 5 seconds before next poll
             await new Promise(resolve => setTimeout(resolve, 5000));
             attempts++;
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.warn('Polling error:', error);
             await new Promise(resolve => setTimeout(resolve, 5000));
             attempts++;
@@ -180,12 +193,12 @@ export const callPhayaStandardImageGen = async (
         });
 
         if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail || 'การสร้างภาพด้วย Phaya.io Standard ล้มเหลว');
+            const error = asJsonObject(await response.json());
+            throw new Error(typeof error.detail === 'string' ? error.detail : 'การสร้างภาพด้วย Phaya.io Standard ล้มเหลว');
         }
 
         return await response.json();
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Phaya Standard API Error:', error);
         throw error;
     }
@@ -198,7 +211,7 @@ export const getPhayaHistory = async (
     apiKey: string,
     limit: number = 10,
     statusFilter: string = 'completed'
-): Promise<any[]> => {
+): Promise<PhayaHistoryItem[]> => {
     try {
         const response = await fetch(`https://api.phaya.io/api/v1/text-to-image/history?limit=${limit}&status_filter=${statusFilter.toUpperCase()}`, {
             method: 'GET',
@@ -212,8 +225,8 @@ export const getPhayaHistory = async (
             throw new Error('ไม่สามารถดึงประวัติการสร้างภาพได้');
         }
 
-        const result = await response.json();
-        return result.history || [];
+        const result = asJsonObject(await response.json());
+        return Array.isArray(result.history) ? result.history as PhayaHistoryItem[] : [];
     } catch (error) {
         console.error('Fetch History Error:', error);
         throw error;
@@ -248,12 +261,17 @@ export const callDalleImageGen = async (
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.error?.message || 'การสร้างภาพด้วย DALL-E 3 ล้มเหลว');
+            throw new Error(getNestedMessage(error, 'การสร้างภาพด้วย DALL-E 3 ล้มเหลว'));
         }
 
-        const result = await response.json();
-        return result.data[0].url;
-    } catch (error: any) {
+        const result = asJsonObject(await response.json());
+        const data = Array.isArray(result.data) ? result.data : [];
+        const first = asJsonObject(data[0]);
+        if (typeof first.url !== 'string') {
+            throw new Error('DALL-E response did not include an image URL');
+        }
+        return first.url;
+    } catch (error: unknown) {
         console.error('DALL-E API Error:', error);
         throw error;
     }
@@ -293,18 +311,20 @@ export const callGoogleImagenGen = async (
 
         if (!response.ok) {
             const error = await response.json().catch(() => ({}));
-            throw new Error(error.error?.message || `Google Imagen error: ${response.status}`);
+            throw new Error(getNestedMessage(error, `Google Imagen error: ${response.status}`));
         }
 
-        const result = await response.json();
-        const base64Image = result.predictions?.[0]?.bytesBase64Encoded;
+        const result = asJsonObject(await response.json());
+        const predictions = Array.isArray(result.predictions) ? result.predictions : [];
+        const firstPrediction = asJsonObject(predictions[0]);
+        const base64Image = firstPrediction.bytesBase64Encoded;
 
-        if (!base64Image) {
+        if (typeof base64Image !== 'string') {
             throw new Error('No image was generated in the response.');
         }
 
         return `data:image/png;base64,${base64Image}`;
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Google Imagen API Error:', error);
         throw error;
     }

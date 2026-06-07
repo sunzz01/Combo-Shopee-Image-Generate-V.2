@@ -5,6 +5,13 @@ interface SettingsProps {
     onClose: () => void;
 }
 
+type SettingsStorage = {
+    gemini_api_key?: string;
+    phaya_api_key?: string;
+    openai_api_key?: string;
+    phaya_api_url?: string;
+};
+
 export function Settings({ onClose }: SettingsProps) {
     const [geminiKey, setGeminiKey] = useState('');
     const [phayaKey, setPhayaKey] = useState('');
@@ -14,11 +21,11 @@ export function Settings({ onClose }: SettingsProps) {
     const [isSaving, setIsSaving] = useState(false);
 
     useEffect(() => {
-        chrome.storage.local.get(['gemini_api_key', 'phaya_api_key', 'openai_api_key', 'phaya_api_url'], (result: any) => {
-            if (result.gemini_api_key) setGeminiKey(result.gemini_api_key as string);
-            if (result.phaya_api_key) setPhayaKey(result.phaya_api_key as string);
-            if (result.openai_api_key) setOpenaiKey(result.openai_api_key as string);
-            if (result.phaya_api_url) setPhayaUrl(result.phaya_api_url as string);
+        chrome.storage.local.get(['gemini_api_key', 'phaya_api_key', 'openai_api_key', 'phaya_api_url'], (result: SettingsStorage) => {
+            if (result.gemini_api_key) setGeminiKey(result.gemini_api_key);
+            if (result.phaya_api_key) setPhayaKey(result.phaya_api_key);
+            if (result.openai_api_key) setOpenaiKey(result.openai_api_key);
+            if (result.phaya_api_url) setPhayaUrl(result.phaya_api_url);
         });
     }, []);
 

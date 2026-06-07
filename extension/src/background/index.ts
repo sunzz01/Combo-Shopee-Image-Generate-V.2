@@ -1,6 +1,7 @@
 import { analyzeProduct, testApiKey } from '../services/aiService';
 import { removeBackground } from '../services/removeBgService';
 import { callPhayaImageGen, pollPhayaJobStatus, callPhayaStandardImageGen, callDalleImageGen, callGoogleImagenGen } from '../services/imageGenService';
+import type { MessageType } from '../types';
 
 // Background Service Worker
 
@@ -18,6 +19,14 @@ type StorageKeys = {
     openai_api_key?: string;
 };
 
+type RuntimeSendResponse = (response?: unknown) => void;
+type PicSellerPayload = Extract<MessageType, { type: 'SEND_TO_PICSELLER' }>['payload'];
+type TabChangeInfo = { status?: string };
+
+const getErrorMessage = (error: unknown): string => (
+    error instanceof Error ? error.message : String(error)
+);
+
 function getFromStorage<T extends keyof StorageKeys>(keys: T[]): Promise<Pick<StorageKeys, T>> {
     return new Promise((resolve) => {
         chrome.storage.local.get(keys, (result) => resolve(result as Pick<StorageKeys, T>));
@@ -25,7 +34,7 @@ function getFromStorage<T extends keyof StorageKeys>(keys: T[]): Promise<Pick<St
 }
 
 // Message Handler for AI Operations
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message: MessageType, _sender: chrome.runtime.MessageSender, sendResponse: RuntimeSendResponse) => {
     if (message.type === 'ANALYZE_PRODUCT') {
         (async () => {
             try {
@@ -54,8 +63,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
                     apiUrlToUse
                 );
                 sendResponse({ success: true, data: result });
-            } catch (error: any) {
-                sendResponse({ success: false, error: error?.message || String(error) });
+            } catch (error: unknown) {
+                sendResponse({ success: false, error: getErrorMessage(error) });
             }
         })();
 
@@ -73,8 +82,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
                 const result = await testApiKey(gemini_api_key);
                 sendResponse({ success: true, data: result });
-            } catch (error: any) {
-                sendResponse({ success: false, error: error?.message || String(error) });
+            } catch (error: unknown) {
+                sendResponse({ success: false, error: getErrorMessage(error) });
             }
         })();
 
@@ -92,8 +101,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
                 const blob = await removeBackground(remove_bg_api_key, message.imageUrl);
                 const base64 = await blobToBase64(blob);
                 sendResponse({ success: true, data: base64 });
-            } catch (error: any) {
-                sendResponse({ success: false, error: error?.message || String(error) });
+            } catch (error: unknown) {
+                sendResponse({ success: false, error: getErrorMessage(error) });
             }
         })();
 
@@ -129,9 +138,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
                     'gemini-3-pro': 'gemini-1.5-pro'
                 };
 
-                let modelName = modelMap[requestedModelId || ''] || 'gemini-1.5-flash';
+                const modelName = modelMap[requestedModelId || ''] || 'gemini-1.5-flash';
 
-                const parts: any[] = [
+                const parts: Array<Record<string, unknown>> = [
                     {
                         text: `You are an AI assistant for e-commerce sellers.
 Analyze the provided product images and generate a highly detailed prompt for an image generation AI (like DALL-E 3 or Imagen 3).
@@ -187,7 +196,7 @@ Rules:
                 const text = result?.candidates?.[0]?.content?.parts?.[0]?.text || '';
                 const cleanText = String(text).replace(/```json|```/g, '').trim();
 
-                let parsed: any = null;
+                let parsed: { prompts?: unknown[]; images?: unknown[]; raw?: string } = {};
                 try {
                     parsed = JSON.parse(cleanText);
                 } catch {
@@ -195,8 +204,8 @@ Rules:
                 }
 
                 sendResponse({ success: true, data: parsed, images: parsed.images || [] });
-            } catch (error: any) {
-                sendResponse({ success: false, error: error?.message || String(error) });
+            } catch (error: unknown) {
+                sendResponse({ success: false, error: getErrorMessage(error) });
             }
         })();
 
@@ -208,12 +217,13 @@ Rules:
             try {
                 const { selected_model_id, openai_api_key, phaya_api_key, phaya_mode } = await getFromStorage(['selected_model_id', 'openai_api_key', 'phaya_api_key', 'phaya_mode']);
                 const { prompt, modelId = selected_model_id } = message.payload;
+                const effectiveModelId = modelId || '';
 
-                if (modelId === 'dalle-3') {
+                if (effectiveModelId === 'dalle-3') {
                     if (!openai_api_key) throw new Error('❌ ไม่พบ OpenAI API Key กรุณาตั้งค่าก่อนครับ');
                     const imageUrl = await callDalleImageGen(openai_api_key, prompt);
                     sendResponse({ success: true, data: { imageUrl, model: 'dalle-3' } });
-                } else if (modelId === 'phaya-ai') {
+                } else if (effectiveModelId === 'phaya-ai') {
                     if (!phaya_api_key) throw new Error('❌ ไม่พบ Phaya.io API Key');
                     const mode = phaya_mode || 'standard';
                     let createResult;
@@ -224,18 +234,18 @@ Rules:
                     }
                     const imageUrl = await pollPhayaJobStatus(phaya_api_key, createResult.job_id);
                     sendResponse({ success: true, data: { imageUrl, model: 'phaya-ai' } });
-                } else if (modelId.startsWith('gemini-') || modelId === 'imagen-3') {
+                } else if (effectiveModelId.startsWith('gemini-') || effectiveModelId === 'imagen-3') {
                     // Gemini/Imagen generation via Google API
                     const { gemini_api_key } = await getFromStorage(['gemini_api_key']);
                     if (!gemini_api_key) throw new Error('❌ ไม่พบ Gemini API Key กรุณาตั้งค่าก่อนครับ');
 
-                    const imageUrl = await callGoogleImagenGen(gemini_api_key, prompt, modelId);
-                    sendResponse({ success: true, data: { imageUrl, model: modelId } });
+                    const imageUrl = await callGoogleImagenGen(gemini_api_key, prompt, effectiveModelId);
+                    sendResponse({ success: true, data: { imageUrl, model: effectiveModelId } });
                 } else {
                     throw new Error('ขออภัย โมเดลนี้ยังไม่รองรับการสร้างภาพโดยตรงจาก Extension ในขณะนี้');
                 }
-            } catch (error: any) {
-                sendResponse({ success: false, error: error?.message || String(error) });
+            } catch (error: unknown) {
+                sendResponse({ success: false, error: getErrorMessage(error) });
             }
         })();
         return true;
@@ -264,8 +274,8 @@ Rules:
                 const imageUrl = await pollPhayaJobStatus(phaya_api_key, createResult.job_id);
 
                 sendResponse({ success: true, data: { imageUrl, mode } });
-            } catch (error: any) {
-                sendResponse({ success: false, error: error?.message || String(error) });
+            } catch (error: unknown) {
+                sendResponse({ success: false, error: getErrorMessage(error) });
             }
         })();
 
@@ -310,7 +320,7 @@ Rules:
                     }
                 };
 
-                const injectAndSend = async (tabId: number, payload: any) => {
+                const injectAndSend = async (tabId: number, payload: PicSellerPayload) => {
                     console.log('[Background] Sending data to content script in tab:', tabId);
                     // ใช้ ISOLATED world + content script relay แทน MAIN world injection
                     // เพื่อหลีกเลี่ยงการถูกตรวจจับโดย Anti-Bot ที่ monitor Global Scope
@@ -319,12 +329,12 @@ Rules:
                             type: 'SEND_TO_PICSELLER',
                             payload: payload
                         });
-                    } catch (err) {
+                    } catch {
                         // Fallback: inject via ISOLATED world (ยังคงปลอดภัยกว่า MAIN)
                         await chrome.scripting.executeScript({
                             target: { tabId },
                             world: 'ISOLATED',
-                            func: (data: any) => {
+                            func: (data: PicSellerPayload) => {
                                 window.postMessage({
                                     type: '__xfer_msg',
                                     detail: data
@@ -362,7 +372,7 @@ Rules:
                         // Wait for tab to finish loading
                         const waitForLoad = (tabId: number): Promise<void> => {
                             return new Promise((resolve) => {
-                                const listener = (updatedTabId: number, info: any) => {
+                                const listener = (updatedTabId: number, info: TabChangeInfo) => {
                                     if (updatedTabId === tabId && info.status === 'complete') {
                                         chrome.tabs.onUpdated.removeListener(listener);
                                         resolve();
@@ -405,7 +415,7 @@ Rules:
                     // รอให้ page load เสร็จ
                     const waitForNewTab = (tabId: number): Promise<void> => {
                         return new Promise((resolve) => {
-                            const listener = (updatedTabId: number, info: any) => {
+                            const listener = (updatedTabId: number, info: TabChangeInfo) => {
                                 if (updatedTabId === tabId && info.status === 'complete') {
                                     chrome.tabs.onUpdated.removeListener(listener);
                                     resolve();
@@ -427,9 +437,9 @@ Rules:
 
                     sendResponse({ success: true, opened: true });
                 }
-            } catch (error: any) {
+            } catch (error: unknown) {
                 console.error('[Background] Error:', error);
-                sendResponse({ success: false, error: error?.message || String(error) });
+                sendResponse({ success: false, error: getErrorMessage(error) });
             }
         })();
         return true;

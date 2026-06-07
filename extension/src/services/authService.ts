@@ -11,7 +11,7 @@ export interface GoogleUser {
  */
 export const getAuthToken = (interactive: boolean = false): Promise<string> => {
     return new Promise((resolve, reject) => {
-        chrome.identity.getAuthToken({ interactive }, (result: any) => {
+        chrome.identity.getAuthToken({ interactive }, (result: string | { token?: string }) => {
             const token = typeof result === 'string' ? result : result?.token;
 
             if (chrome.runtime.lastError || !token) {
@@ -32,7 +32,7 @@ export const refreshAuthToken = async (): Promise<string> => {
         await new Promise<void>((resolve) => {
             chrome.identity.removeCachedAuthToken({ token: oldToken }, () => resolve());
         });
-    } catch (error) {
+    } catch {
         console.log('No cached token to remove');
     }
 

@@ -33,7 +33,7 @@ const isTrackerUrl = (url: string): boolean => {
 };
 
 // Listen for messages from Side Panel / Background
-chrome.runtime.onMessage.addListener((message: MessageType, _sender: chrome.runtime.MessageSender, sendResponse: (response?: any) => void) => {
+chrome.runtime.onMessage.addListener((message: MessageType, _sender: chrome.runtime.MessageSender, sendResponse: (response?: unknown) => void) => {
     if (message.type === 'PING') {
         sendResponse({ status: 'PONG' });
     }
@@ -176,7 +176,8 @@ chrome.runtime.onMessage.addListener((message: MessageType, _sender: chrome.runt
 
         // 3. Scan Network Requests (Performance API — low footprint)
         const perfImages = performance.getEntriesByType('resource')
-            .filter(r => (r as any).initiatorType === 'img' || r.name.match(/\.(jpg|jpeg|png|webp|avif)/i))
+            .filter((r): r is PerformanceResourceTiming => r instanceof PerformanceResourceTiming)
+            .filter(r => r.initiatorType === 'img' || r.name.match(/\.(jpg|jpeg|png|webp|avif)/i))
             .map(r => r.name);
         perfImages.forEach(src => addImage(src, 0, 0, 'Network'));
 
@@ -203,18 +204,14 @@ chrome.runtime.onMessage.addListener((message: MessageType, _sender: chrome.runt
 
     if (message.type === 'FETCH_IMAGE_BASE64') {
         const fetchAndConvert = async (url: string) => {
-            try {
-                const resp = await fetch(url);
-                const blob = await resp.blob();
-                return new Promise<string>((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => resolve(reader.result as string);
-                    reader.onerror = reject;
-                    reader.readAsDataURL(blob);
-                });
-            } catch (err) {
-                throw err;
-            }
+            const resp = await fetch(url);
+            const blob = await resp.blob();
+            return new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
         };
 
         if (message.imageUrl) {
@@ -226,11 +223,11 @@ chrome.runtime.onMessage.addListener((message: MessageType, _sender: chrome.runt
     }
 
     // SECURITY: เปลี่ยนชื่อ event เป็น generic + ใช้ origin-specific postMessage
-    if (message.type === 'SEND_TO_SHOPEE_MASTER') {
+    if (message.type === 'SEND_TO_PICSELLER') {
         // Method 1: postMessage with origin-specific target (ไม่ใช้ '*')
         window.postMessage({
             type: '__xfer_msg',
-            detail: (message as any).payload
+            detail: message.payload
         }, window.location.origin);
 
         sendResponse({ status: 'OK' });

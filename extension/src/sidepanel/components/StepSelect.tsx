@@ -196,7 +196,7 @@ export function StepSelect() {
                                 const productUrl = tab?.url || '';
 
                                 await chrome.runtime.sendMessage({
-                                    type: 'SEND_TO_SHOPEE_MASTER',
+                                    type: 'SEND_TO_PICSELLER',
                                     payload: {
                                         productUrl,
                                         productName: state.scrapedContent?.productName || state.analysisResult?.product_name || tab?.title?.split('|')[0]?.split('-')[0]?.trim() || '',
