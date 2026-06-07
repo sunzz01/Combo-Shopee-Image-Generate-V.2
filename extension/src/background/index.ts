@@ -17,6 +17,7 @@ type StorageKeys = {
     phaya_api_url?: string;
     phaya_mode?: 'standard' | 'nano';
     openai_api_key?: string;
+    webapp_url?: string;
 };
 
 type RuntimeSendResponse = (response?: unknown) => void;
@@ -286,16 +287,28 @@ Rules:
         (async () => {
             try {
                 const tabs = await chrome.tabs.query({});
+                const { webapp_url } = await getFromStorage(['webapp_url']);
 
-                // Priority 1: Find by localhost URL (most reliable)
-                let targetTab = tabs.find(t =>
-                    t.url?.includes('localhost:8080') ||
-                    t.url?.includes('127.0.0.1:8080') ||
-                    t.url?.includes('localhost:8081') ||
-                    t.url?.includes('127.0.0.1:8081') ||
-                    t.url?.includes('localhost:3001') ||
-                    t.url?.includes('127.0.0.1:3001')
-                );
+                let targetHost = '';
+                if (webapp_url) {
+                    try {
+                        targetHost = new URL(webapp_url).hostname;
+                    } catch (e) {
+                        console.error('Invalid webapp_url:', webapp_url, e);
+                    }
+                }
+
+                // Priority 1: Find by configured Web App URL or localhost (most reliable)
+                let targetTab = tabs.find(t => {
+                    if (!t.url) return false;
+                    if (targetHost && t.url.includes(targetHost)) return true;
+                    return t.url.includes('localhost:8080') ||
+                           t.url.includes('127.0.0.1:8080') ||
+                           t.url.includes('localhost:8081') ||
+                           t.url.includes('127.0.0.1:8081') ||
+                           t.url.includes('localhost:3001') ||
+                           t.url.includes('127.0.0.1:3001');
+                });
 
                 // Priority 2: Find by specific title (PicSeller app title)
                 if (!targetTab) {
@@ -304,8 +317,6 @@ Rules:
                         t.title?.includes('PicSeller')
                     );
                 }
-
-
 
                 // Helper: Convert image URL to Base64 via fetch in background
                 const imageUrlToBase64 = async (url: string): Promise<string> => {
@@ -343,7 +354,6 @@ Rules:
                             args: [payload]
                         });
                     }
-
                 };
 
                 if (targetTab?.id) {
@@ -362,7 +372,6 @@ Rules:
 
                     // Check if tab is discarded (unloaded by Chrome)
                     if (targetTab.discarded) {
-
                         // Activate tab to reload it
                         await chrome.tabs.update(targetTab.id, { active: true });
                         if (targetTab.windowId) {
@@ -388,7 +397,6 @@ Rules:
                         };
 
                         await waitForLoad(targetTab.id);
-
                         await new Promise(r => setTimeout(r, 500)); // Extra delay for React to mount
                     }
 
@@ -410,7 +418,8 @@ Rules:
                         payload = { ...payload, images: base64Images };
                     }
 
-                    const newTab = await chrome.tabs.create({ url: 'http://localhost:8081/', active: true });
+                    const defaultUrl = webapp_url || 'http://localhost:8081/';
+                    const newTab = await chrome.tabs.create({ url: defaultUrl, active: true });
 
                     // รอให้ page load เสร็จ
                     const waitForNewTab = (tabId: number): Promise<void> => {

@@ -41,34 +41,52 @@ chrome.runtime.onMessage.addListener((message: MessageType, _sender: chrome.runt
     if (message.type === 'SCAN_IMAGES') {
         const imageList: ScannedImage[] = [];
 
-        // --- PART 1: TEXT SCRAPING (Targeted Selectors Only) ---
+        // --- PART 1: TEXT SCRAPING (Targeted Selectors & Metadata fallbacks) ---
         let scrapedName = '';
         let scrapedDesc = '';
 
         // 1.0 SECURITY: ดึงข้อมูลจาก JSON-LD / Next Data ก่อน (ไม่ทิ้ง DOM footprint)
         try {
-            const jsonLdScript = document.querySelector('script[type="application/ld+json"]');
-            if (jsonLdScript) {
-                const jsonData = JSON.parse(jsonLdScript.textContent || '{}');
-                if (jsonData.name) scrapedName = jsonData.name;
-                if (jsonData.description) scrapedDesc = jsonData.description;
+            const jsonLds = document.querySelectorAll('script[type="application/ld+json"]');
+            for (const script of jsonLds) {
+                const data = JSON.parse(script.textContent || '{}');
+                const findInObj = (obj: any): { name?: string, desc?: string } => {
+                    if (!obj || typeof obj !== 'object') return {};
+                    if (obj.name && (obj.description || obj['@type'] === 'Product')) {
+                        return { name: obj.name, desc: obj.description };
+                    }
+                    if (Array.isArray(obj)) {
+                        for (const item of obj) {
+                            const res = findInObj(item);
+                            if (res.name) return res;
+                        }
+                    }
+                    for (const key of Object.keys(obj)) {
+                        const res = findInObj(obj[key]);
+                        if (res.name) return res;
+                    }
+                    return {};
+                };
+                const res = findInObj(data);
+                if (res.name && !scrapedName) scrapedName = res.name;
+                if (res.desc && !scrapedDesc) scrapedDesc = res.desc;
             }
         } catch { /* ignore parse errors */ }
 
         // 1.0b Try __NEXT_DATA__ (Next.js / Shopee SPA)
-        if (!scrapedName) {
+        if (!scrapedName || !scrapedDesc) {
             try {
                 const nextDataScript = document.getElementById('__NEXT_DATA__');
                 if (nextDataScript) {
                     const nextData = JSON.parse(nextDataScript.textContent || '{}');
                     const props = nextData?.props?.pageProps?.product || nextData?.props?.pageProps?.item;
-                    if (props?.name) scrapedName = props.name;
-                    if (props?.description) scrapedDesc = props.description;
+                    if (props?.name && !scrapedName) scrapedName = props.name;
+                    if (props?.description && !scrapedDesc) scrapedDesc = props.description;
                 }
             } catch { /* ignore */ }
         }
 
-        // 1.1 Helper to find input by label/placeholder (targeted, not brute-force)
+        // 1.1 Helper to find input by label/placeholder (targeted, not brute-force - mostly for Seller Centre)
         const findInputByKeyword = (keywords: string[]): string => {
             const inputs = Array.from(document.querySelectorAll('input[type="text"], textarea'));
             for (const input of inputs) {
@@ -87,7 +105,7 @@ chrome.runtime.onMessage.addListener((message: MessageType, _sender: chrome.runt
             return '';
         };
 
-        // 1.2 Fallback: Try DOM selectors only if JSON methods failed
+        // 1.2 Fallback: Try Seller Centre input selectors if JSON methods failed
         if (!scrapedName) {
             scrapedName = findInputByKeyword(['ชื่อสินค้า', 'Product Name', 'ชื่อแบรนด์', 'ประเภทสินค้า']);
         }
@@ -95,22 +113,63 @@ chrome.runtime.onMessage.addListener((message: MessageType, _sender: chrome.runt
             scrapedDesc = findInputByKeyword(['รายละเอียดสินค้า', 'Product Description', 'รายละเอียด']);
         }
 
-        // 1.3 Fallback: standard page structure
+        // 1.3 Fallback: standard page structure & meta tags for Shopee/Lazada buyer page
         if (!scrapedName) {
-            const h1 = document.querySelector('h1') || document.querySelector('.product-title') || document.querySelector('.QA7i7S');
-            if (h1 && isElementVisible(h1 as HTMLElement)) {
-                scrapedName = h1.textContent?.trim() || '';
+            const nameSelectors = [
+                'h1',
+                '.product-title',
+                '.QA7i7S', // Shopee Buyer title class
+                '.pdp-mod-product-title', // Lazada title class
+                '[class*="product-title" i]',
+                '[class*="productTitle" i]',
+                '[class*="productName" i]',
+                '[class*="product_title" i]'
+            ];
+            for (const sel of nameSelectors) {
+                const el = document.querySelector(sel);
+                if (el && isElementVisible(el as HTMLElement)) {
+                    scrapedName = el.textContent?.trim() || '';
+                    if (scrapedName) break;
+                }
             }
         }
 
-        if (!scrapedDesc) {
-            const metaDesc = document.querySelector('meta[name="description"]');
-            if (metaDesc) scrapedDesc = metaDesc.getAttribute('content') || '';
+        // 1.4 Metadata search for Name
+        if (!scrapedName) {
+            const metaTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content') ||
+                              document.querySelector('meta[name="twitter:title"]')?.getAttribute('content');
+            if (metaTitle) {
+                scrapedName = metaTitle.replace(/\s*\|\s*Shopee\s*.*/i, '').replace(/\s*\|\s*Lazada\s*.*/i, '').trim();
+            }
+        }
+        if (!scrapedName) {
+            scrapedName = document.title.replace(/\s*\|\s*Shopee\s*.*/i, '').replace(/\s*\|\s*Lazada\s*.*/i, '').trim();
+        }
 
-            if (!scrapedDesc) {
-                const descContainer = document.querySelector('.product-detail') || document.querySelector('.IR3_1O');
-                if (descContainer && isElementVisible(descContainer as HTMLElement)) {
-                    scrapedDesc = descContainer.textContent?.trim() || '';
+        // 1.5 Metadata search for Description
+        if (!scrapedDesc) {
+            const metaDesc = document.querySelector('meta[property="og:description"]')?.getAttribute('content') ||
+                             document.querySelector('meta[name="description"]')?.getAttribute('content') ||
+                             document.querySelector('meta[name="twitter:description"]')?.getAttribute('content');
+            if (metaDesc) scrapedDesc = metaDesc;
+        }
+
+        // 1.6 DOM search for Description
+        if (!scrapedDesc) {
+            const descSelectors = [
+                '.product-detail',
+                '.IR3_1O', // Shopee Buyer description class
+                '.pdp-product-detail', // Lazada description class
+                '[class*="product-detail" i]',
+                '[class*="productDetail" i]',
+                '[class*="description" i]',
+                '[class*="Description" i]'
+            ];
+            for (const sel of descSelectors) {
+                const el = document.querySelector(sel);
+                if (el && isElementVisible(el as HTMLElement)) {
+                    scrapedDesc = el.textContent?.trim() || '';
+                    if (scrapedDesc) break;
                 }
             }
         }
