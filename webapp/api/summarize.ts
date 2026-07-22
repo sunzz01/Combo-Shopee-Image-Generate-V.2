@@ -14,13 +14,22 @@
  *   { summary: string }
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { smartRetry, MODEL_REGISTRY } from './_lib/vertex';
+import { smartRetry, MODEL_REGISTRY } from './_lib/vertex.js';
+import { generateGeminiText } from './_lib/geminiFallback.js';
+import { requireFirebaseUser } from './_lib/firebaseAdmin.js';
+
+function extractVertexText(response: any): string {
+  return response?.response?.candidates?.[0]?.content?.parts
+    ?.map((part: any) => part.text || '')
+    .join('')
+    .trim() || '';
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -30,6 +39,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
+    await requireFirebaseUser(req);
+
     const { currentDesc, images, summaryLength = 'medium' } = req.body;
 
     if (!currentDesc && (!images || images.length === 0)) {
@@ -40,7 +51,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // Add images if available
     if (images && images.length > 0) {
-      for (const img of images.slice(0, 5)) {
+      for (const img of images.slice(0, 3)) {
         const base64Data = img.includes('base64,') ? img.split('base64,')[1] : img;
         parts.push({
           inlineData: {
@@ -79,18 +90,25 @@ ${lengthInstructions[summaryLength]}
 Output strictly the summary text.`,
     });
 
-    const result = await smartRetry(async (model, ai) => {
-      console.log(`[summarize] Using model: ${model}`);
-      const response = await ai.models.generateContent({
-        model,
-        contents: { parts },
-      });
-      return response.text || '';
-    }, MODEL_REGISTRY.text);
+    let result = '';
+    try {
+      result = await smartRetry(async (model, ai) => {
+        console.log(`[summarize] Using Vertex model: ${model}`);
+        const generativeModel = ai.getGenerativeModel({ model });
+
+        const response = await generativeModel.generateContent({
+          contents: [{ role: 'user', parts }],
+        });
+        return extractVertexText(response);
+      }, MODEL_REGISTRY.text);
+    } catch (vertexError: any) {
+      console.warn('[summarize] Vertex failed, trying Gemini API fallback:', vertexError?.message || vertexError);
+      result = await generateGeminiText(parts);
+    }
 
     return res.status(200).json({ summary: result });
   } catch (error: any) {
     console.error('[api/summarize] Error:', error);
-    return res.status(500).json({ error: error.message || 'Internal server error' });
+    return res.status(error.statusCode || 500).json({ error: error.message || 'Internal server error' });
   }
 }

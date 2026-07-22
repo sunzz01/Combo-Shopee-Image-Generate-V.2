@@ -45,9 +45,10 @@ import { useTheme } from './src/contexts/ThemeContext'; // นำเข้า ho
 import { useNotification } from './src/contexts/NotificationContext';
 import NotificationSystem from './src/components/NotificationSystem';
 import { useAuth } from './src/contexts/AuthContext';
-import { saveToDB, loadFromDB } from './src/utils/storage'; // Persistence
+import { saveToDB, loadFromDB, clearDB } from './src/utils/storage'; // Persistence
 import { ImageEditorModal } from './src/components/ImageEditorModal';
 import LoginPage from './src/components/LoginPage';
+import { ShopeeAdsStudio } from './src/components/ShopeeAdsStudio';
 
 const STYLES = [
   {
@@ -235,31 +236,20 @@ const STYLES = [
 // โมเดล Gemini ที่ใช้สำหรับสร้างภาพ
 const GEMINI_IMAGE_MODELS = [
   {
-    id: 'imagen-3.0-generate-002',
-    name: 'Imagen 3 Generate',
-    badge: '👑 RECOMMENDED',
-    badgeColor: 'bg-gradient-to-r from-amber-500 to-yellow-400 text-black font-bold',
-    desc: 'โมเดลสร้างภาพคุณภาพสูงของ Google (แนะนํา)',
-    borderColor: 'border-amber-500',
-    glowColor: 'shadow-amber-500/40',
-    textColor: 'text-amber-400',
-    iconBg: 'from-amber-500 to-yellow-400',
-  },
-  {
-    id: 'imagen-3.0-fast-generate-001',
-    name: 'Imagen 3 Fast',
-    badge: '⚡ FAST',
-    badgeColor: 'bg-blue-600 text-white font-bold',
-    desc: 'สร้างภาพเร็ว คุณภาพดี เหมาะกับการทดสอบ',
-    borderColor: 'border-blue-500',
-    glowColor: 'shadow-blue-500/40',
-    textColor: 'text-blue-400',
-    iconBg: 'from-blue-500 to-cyan-400',
+    id: 'product-recontext-v1',
+    name: '2-Stage Product Recontext',
+    badge: 'Recommended',
+    badgeColor: 'bg-gradient-to-r from-emerald-600 to-teal-500',
+    desc: 'Gemini 2.5 Flash วิเคราะห์สินค้าและเขียน prompt จากนั้น Imagen Product Recontext เปลี่ยนฉากโดยคงสินค้าจริง',
+    borderColor: 'border-emerald-500',
+    glowColor: 'shadow-emerald-500/40',
+    textColor: 'text-emerald-400',
+    iconBg: 'from-emerald-500 to-teal-400',
   },
   {
     id: 'gemini-3.1-flash-image-preview',
     name: 'Gemini 3.1 Flash Image Preview',
-    badge: '🔥 NEW',
+    badge: 'Nano Banana 2',
     badgeColor: 'bg-gradient-to-r from-red-500 to-orange-400',
     desc: 'Gen ข้อความภาษาไทยไม่เพี้ยน ล่าสุด!',
     borderColor: 'border-orange-500',
@@ -268,11 +258,33 @@ const GEMINI_IMAGE_MODELS = [
     iconBg: 'from-red-500 to-orange-400',
   },
   {
+    id: 'imagen-4.0-generate-001',
+    name: 'Imagen 4 Generate',
+    badge: 'Imagen 4',
+    badgeColor: 'bg-gradient-to-r from-amber-500 to-yellow-400 text-black font-bold',
+    desc: 'ภาพสวยระดับ Imagen 4 จาก prompt ที่ Gemini 2.5 Flash ช่วยออกแบบ',
+    borderColor: 'border-amber-500',
+    glowColor: 'shadow-amber-500/40',
+    textColor: 'text-amber-400',
+    iconBg: 'from-amber-500 to-yellow-400',
+  },
+  {
+    id: 'imagen-4.0-fast-generate-001',
+    name: 'Imagen 4 Fast',
+    badge: 'Imagen 4 Fast',
+    badgeColor: 'bg-blue-600 text-white font-bold',
+    desc: 'Imagen 4 เวอร์ชันเร็ว เหมาะกับ preview/ทดลองหลายภาพ',
+    borderColor: 'border-blue-500',
+    glowColor: 'shadow-blue-500/40',
+    textColor: 'text-blue-400',
+    iconBg: 'from-blue-500 to-cyan-400',
+  },
+  {
     id: 'gemini-2.5-flash-image',
     name: 'Gemini 2.5 Flash Image',
-    badge: 'Default',
+    badge: 'Nano Banana 1',
     badgeColor: 'bg-gray-600',
-    desc: 'รุ่นเดิม ภาพสวย ครีเอทีฟสูง',
+    desc: 'รุ่นเดิม ใช้เมื่อไม่ต้องการบังคับ Nano Banana 2',
     borderColor: 'border-blue-500',
     glowColor: 'shadow-blue-500/40',
     textColor: 'text-blue-400',
@@ -281,13 +293,35 @@ const GEMINI_IMAGE_MODELS = [
   {
     id: 'gemini-3-pro-image-preview',
     name: 'Gemini 3 Pro Image Preview',
-    badge: 'PRO',
+    badge: 'Nano Banana Pro',
     badgeColor: 'bg-gradient-to-r from-purple-600 to-violet-500',
     desc: 'SOTA Image Gen คุณภาพสูงสุด (Paid)',
     borderColor: 'border-purple-500',
     glowColor: 'shadow-purple-500/40',
     textColor: 'text-purple-400',
     iconBg: 'from-purple-600 to-violet-500',
+  },
+  {
+    id: 'imagen-3.0-generate-002',
+    name: 'Imagen 3 Generate',
+    badge: 'Imgen 3',
+    badgeColor: 'bg-gradient-to-r from-amber-500 to-yellow-400 text-black font-bold',
+    desc: 'โมเดลสร้างภาพคุณภาพสูงของ Google (ใช้ generateImages API)',
+    borderColor: 'border-amber-500',
+    glowColor: 'shadow-amber-500/40',
+    textColor: 'text-amber-400',
+    iconBg: 'from-amber-500 to-yellow-400',
+  },
+  {
+    id: 'imagen-3.0-fast-generate-001',
+    name: 'Imagen 3 Fast',
+    badge: 'Fast Imgen',
+    badgeColor: 'bg-blue-600 text-white font-bold',
+    desc: 'สร้างภาพเร็ว คุณภาพดี (ใช้ generateImages API)',
+    borderColor: 'border-blue-500',
+    glowColor: 'shadow-blue-500/40',
+    textColor: 'text-blue-400',
+    iconBg: 'from-blue-500 to-cyan-400',
   },
 ];
 
@@ -325,6 +359,7 @@ const App: React.FC = () => {
   const [authName, setAuthName] = useState<string>('');
   const [isSubmittingAuth, setIsSubmittingAuth] = useState<boolean>(false);
   const [showProfileDropdown, setShowProfileDropdown] = useState<boolean>(false);
+  const [studioMode, setStudioMode] = useState(false);
 
   const [productUrl, setProductUrl] = useState<string>('');
   const [productName, setProductName] = useState<string>('');
@@ -332,7 +367,7 @@ const App: React.FC = () => {
   const [summaryLength, setSummaryLength] = useState<'short' | 'medium' | 'long'>('medium');
   const [isSavingToFolder, setIsSavingToFolder] = useState(false);
   const [selectedStyle, setSelectedStyle] = useState<string>('aliexpress');
-  const [selectedImageModel, setSelectedImageModel] = useState<string>('imagen-3.0-generate-002'); // โมเดลสำหรับสร้างภาพ
+  const [selectedImageModel, setSelectedImageModel] = useState<string>('product-recontext-v1'); // โมเดลสำหรับสร้างภาพ
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [isScrapingOnly, setIsScrapingOnly] = useState<boolean>(false);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
@@ -568,6 +603,23 @@ const App: React.FC = () => {
   ]);
 
   // ==========================================
+  // CLEAR DB HANDLER
+  // ==========================================
+  const handleClearDB = async () => {
+    if (window.confirm('คุณแน่ใจหรือไม่ที่จะลบข้อมูลทั้งหมดที่เก็บไว้ในเบราว์เซอร์? ข้อมูลที่ถูกลบจะไม่สามารถกู้คืนได้')) {
+      try {
+        await clearDB();
+        addNotification('success', 'ลบข้อมูลสำเร็จ', 'ข้อมูลทั้งหมดถูกลบแล้ว');
+        // Reload the page to clear any in-memory state
+        window.location.reload();
+      } catch (error) {
+        console.error('Error clearing DB:', error);
+        addNotification('error', 'ลบข้อมูลล้มเหลว', 'ไม่สามารถลบข้อมูลได้');
+      }
+    }
+  };
+
+  // ==========================================
   // AUTHENTICATION HANDLERS
   // ==========================================
   const handleAuthSubmit = async (e: React.FormEvent) => {
@@ -584,19 +636,19 @@ const App: React.FC = () => {
     setIsSubmittingAuth(true);
     try {
       if (authTab === 'login') {
-        const success = await login(authEmail, authPassword);
-        if (success) {
-          addNotification('success', 'เข้าสู่ระบบสำเร็จ', 'ยินดีต้อนรับกลับสู่ PicSeller!');
+        const result = await login(authEmail, authPassword);
+        if (result.success) {
+          addNotification('success', 'เข้าสู่ระบบสำเร็จ', result.message);
         } else {
-          addNotification('error', 'เข้าสู่ระบบล้มเหลว', 'อีเมลหรือรหัสผ่านไม่ถูกต้อง');
+          addNotification('error', 'เข้าสู่ระบบล้มเหลว', result.message);
         }
       } else {
-        const success = await register(authEmail, authPassword, authName);
-        if (success) {
-          addNotification('success', 'ลงทะเบียนสำเร็จ', 'สร้างบัญชีผู้ใช้งานใหม่เรียบร้อยแล้ว!');
+        const result = await register(authEmail, authPassword, authName);
+        if (result.success) {
+          addNotification('success', 'ลงทะเบียนสำเร็จ', result.message);
           setAuthTab('login');
         } else {
-          addNotification('error', 'ลงทะเบียนล้มเหลว', 'อีเมลนี้ถูกใช้งานแล้ว หรือรหัสผ่านไม่ตรงตามเงื่อนไข');
+          addNotification('error', 'ลงทะเบียนล้มเหลว', result.message);
         }
       }
     } catch (err: any) {
@@ -609,9 +661,11 @@ const App: React.FC = () => {
   const handleSocialLogin = async (provider: 'google' | 'facebook' | 'apple') => {
     setIsSubmittingAuth(true);
     try {
-      const success = await loginWithSocial(provider);
-      if (success) {
-        addNotification('success', 'เชื่อมต่อสำเร็จ', `เข้าสู่ระบบผ่าน ${provider.toUpperCase()} เรียบร้อยแล้ว`);
+      const result = await loginWithSocial(provider);
+      if (result.success) {
+        addNotification('success', 'เชื่อมต่อสำเร็จ', result.message);
+      } else {
+        addNotification('error', 'เชื่อมต่อล้มเหลว', result.message);
       }
     } catch (err: any) {
       addNotification('error', 'เชื่อมต่อล้มเหลว', `ไม่สามารถเข้าสู่ระบบผ่าน ${provider} ได้`);
@@ -723,7 +777,13 @@ const App: React.FC = () => {
     try {
       const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(productUrl as string)}`;
       const response = await fetch(proxyUrl);
-      const data = await response.json() as any;
+      const rawBody = await response.text();
+      let data: any;
+      try {
+        data = JSON.parse(rawBody);
+      } catch {
+        throw new Error('Shopee proxy ส่งข้อมูลกลับมาไม่ใช่ JSON กรุณาลองอัปโหลดรูปสินค้าเองแทนการดึงจากลิงก์');
+      }
       const html = data.contents;
       const foundImages: string[] = [];
       const imgRegex = /https:\/\/cf\.shopee\.co\.th\/file\/[a-z0-9]+/gi;
@@ -760,7 +820,7 @@ const App: React.FC = () => {
     }
 
     if (user) {
-      if (user.credits < 1) {
+      if (!user.unlimitedCredits && user.credits < 1) {
         addNotification('error', 'เครดิตไม่เพียงพอ', 'กรุณาอัปเกรดแพ็กเกจหรือเติมเครดิตเพื่อวิเคราะห์สินค้า (ใช้ 1 เครดิต)');
         return;
       }
@@ -781,7 +841,7 @@ const App: React.FC = () => {
       if (user) {
         const success = deductCredit(1);
         if (success) {
-          addNotification('success', 'วิเคราะห์สินค้าสำเร็จ', 'หักเครดิตสำหรับการประมวลผล 1 เครดิต');
+          addNotification('success', 'วิเคราะห์สินค้าสำเร็จ', user.unlimitedCredits ? 'บัญชีทดลอง Unlimited ไม่ถูกหักเครดิต' : 'หักเครดิตสำหรับการประมวลผล 1 เครดิต');
         }
       } else {
         addNotification('success', 'วิเคราะห์สินค้าสำเร็จ', 'AI วิเคราะห์ข้อมูลสินค้าเสร็จเรียบร้อยแล้ว');
@@ -807,9 +867,15 @@ const App: React.FC = () => {
 
     const categoriesToGenerate = sortedCategories.filter(cat => selectedCategories.has(cat));
     const requiredCredits = categoriesToGenerate.length;
+    const allImages = [...localImages, ...scrapedImages];
+
+    if (allImages.length === 0) {
+      addNotification('warning', 'ต้องมีรูปสินค้าก่อน', 'Pipeline Product Recontext ต้องใช้รูปสินค้าต้นฉบับอย่างน้อย 1 รูป กรุณาอัปโหลดรูปหรือดึงข้อมูลสินค้าก่อนสร้างภาพ');
+      return;
+    }
 
     if (user) {
-      if (user.credits < requiredCredits) {
+      if (!user.unlimitedCredits && user.credits < requiredCredits) {
         addNotification('error', 'เครดิตไม่เพียงพอ', `ต้องการ ${requiredCredits} เครดิตสำหรับสร้างภาพ ${requiredCredits} หมวดหมู่ (คุณมีอยู่ ${user.credits} เครดิต)`);
         return;
       }
@@ -829,11 +895,18 @@ const App: React.FC = () => {
     addNotification('info', 'กำลังประมวลผลรูปภาพ', `เตรียมความพร้อมและปรับภาพเป็น Base64 สำหรับส่งให้ AI Gemini...`);
 
     console.log("Processing images for AI...");
-    const allImages = [...localImages, ...scrapedImages];
     const processedImages = await Promise.all(
       allImages.map(url => imageUrlToBase64(url))
     );
     const validImages = processedImages.filter(img => img && img !== "");
+
+    if (validImages.length === 0) {
+      addNotification('error', 'อ่านรูปสินค้าไม่ได้', 'ระบบไม่สามารถแปลงรูปสินค้าเป็นไฟล์สำหรับส่งให้ AI ได้ กรุณาอัปโหลดรูปใหม่หรือใช้รูปที่มีขนาดเล็กลง');
+      setGeneratedImages([]);
+      setIsGenerating(false);
+      setStep(2);
+      return;
+    }
 
     const productData: ProductData = {
       name: productName || "สินค้าใหม่",
@@ -864,17 +937,22 @@ const App: React.FC = () => {
           styleIdx = parseInt(val) || undefined;
         }
         const result = await generateProductImage(cat, productData, selectedStyle, customPromptForTutorial, selectedImageModel, imageAspectRatios[cat] || selectedAspectRatio, styleIdx);
-        setGeneratedImages(prev => prev.map(p => p.category === cat ? { ...p, url: result.imageUrl, status: 'completed', thaiTexts: result.thaiTexts, promptUsed: result.promptUsed } : p));
+        setGeneratedImages(prev => prev.map(p => p.category === cat ? { ...p, url: result.imageUrl, status: 'completed', thaiTexts: result.thaiTexts, promptUsed: result.promptUsed, modelUsed: result.modelUsed } : p));
         successCount++;
       } catch (err) {
-        setGeneratedImages(prev => prev.map(p => p.category === cat ? { ...p, status: 'error' } : p));
-        addNotification('error', 'สร้างภาพล้มเหลว', `เกิดข้อผิดพลาดในการสร้างภาพหมวดหมู่: ${IMAGE_CATEGORIES_METADATA[cat]?.title || cat}`);
+        setGeneratedImages(prev => prev.map(p => p.category === cat ? { ...p, status: 'error', error: err instanceof Error ? err.message : 'Unknown error' } : p));
+        const errMsg = err instanceof Error ? err.message : '';
+        const isQuota = errMsg.includes('429') || errMsg.includes('quota') || errMsg.includes('QUOTA') || errMsg.includes('RESOURCE_EXHAUSTED');
+        const userMsg = isQuota
+          ? `🚨 โควต้า API Key หมด! กรุณาสร้าง Key ใหม่ที่ https://aistudio.google.com/apikey หรือรอ 1 นาที`
+          : errMsg || `เกิดข้อผิดพลาดในการสร้างภาพหมวดหมู่: ${IMAGE_CATEGORIES_METADATA[cat]?.title || cat}`;
+        addNotification('error', 'สร้างภาพล้มเหลว', userMsg);
       }
     }
 
     if (user && successCount > 0) {
       deductCredit(successCount);
-      addNotification('success', 'สร้างภาพเสร็จสิ้น', `ระบบหัก ${successCount} เครดิตสำหรับการสร้างภาพสำเร็จ ${successCount} ภาพ`);
+      addNotification('success', 'สร้างภาพเสร็จสิ้น', user.unlimitedCredits ? `บัญชีทดลอง Unlimited สร้างสำเร็จ ${successCount} ภาพ โดยไม่ถูกหักเครดิต` : `ระบบหัก ${successCount} เครดิตสำหรับการสร้างภาพสำเร็จ ${successCount} ภาพ`);
     } else if (successCount > 0) {
       addNotification('success', 'สร้างภาพเสร็จสิ้น', `สร้างภาพเสร็จเรียบร้อยทั้งหมด ${successCount} ภาพ`);
     }
@@ -940,7 +1018,8 @@ const App: React.FC = () => {
           url: result.imageUrl,
           status: 'completed',
           thaiTexts: result.thaiTexts,
-          promptUsed: result.promptUsed
+          promptUsed: result.promptUsed,
+          modelUsed: result.modelUsed
         } : img
       ));
     } catch (err) {
@@ -1057,7 +1136,7 @@ const App: React.FC = () => {
     }
   };
 
-  // ฟังก์ชั่นบันทึกไฟล์ลงโฟลเดอร์โดยตรง (ไม่ต้องแตก ZIP)
+  // ฟังก์ชันบันทึกไฟล์ลงโฟลเดอร์โดยตรง (ไม่ต้องแตก ZIP)
   const handleDownloadToFolder = async () => {
     // ตรวจว่า browser รองรับ File System Access API
     if (!('showDirectoryPicker' in window)) {
@@ -1083,7 +1162,7 @@ const App: React.FC = () => {
       thaiTextContent += `  สำหรับแก้ไขข้อความที่เพี้ยนในภาพ AI ด้วย Photoshop\n`;
       thaiTextContent += `═══════════════════════════════════════════════════════\n\n`;
       thaiTextContent += `📦 ชื่อสินค้า: ${productName || 'ไม่ระบุ'}\n`;
-      thaiTextContent += `🎨 แพล็ตฟอร์ม/สไตล์: ${platformName}\n`;
+      thaiTextContent += `🎨 แพลตฟอร์ม/สไตล์: ${platformName}\n`;
       thaiTextContent += `📝 รายละเอียด (ย่อ): ${shortDesc}\n\n`;
       thaiTextContent += `───────────────────────────────────────────────────────\n`;
       thaiTextContent += `  ข้อความที่ควรปรากฏในแต่ละภาพ\n`;
@@ -1229,6 +1308,11 @@ const App: React.FC = () => {
   // ฟังก์ชัน Remove Background โดยใช้ remove.bg API
   const removeBackground = async (imageSrc: string, index: number, isScraped: boolean) => {
     try {
+      const apiKey = removeBgKey.trim();
+      if (!apiKey) {
+        throw new Error("กรุณาใส่ Remove.bg API Key ในหน้าตั้งค่าก่อนใช้งาน");
+      }
+
       // แปลง data URL เป็น Blob
       const response = await fetch(imageSrc);
       const blob = await response.blob();
@@ -1241,7 +1325,7 @@ const App: React.FC = () => {
       const apiResponse = await fetch('https://api.remove.bg/v1.0/removebg', {
         method: 'POST',
         headers: {
-          'X-Api-Key': (import.meta as any).env.VITE_REMOVE_BG_API_KEY || 'QXnQtJFLb4JJ2uM74xnpR17N' // ใช้ env variable ถ้ามี ไม่งั้นใช้ค่าเดิม
+          'X-Api-Key': apiKey
         },
         body: formData
       });
@@ -1282,6 +1366,11 @@ const App: React.FC = () => {
   // Extract inner removeBg logic into a pure function for Modal to use without state bindings
   const callRemoveBgApi = async (dataUrl: string): Promise<string | null> => {
     try {
+      const apiKey = removeBgKey.trim();
+      if (!apiKey) {
+        throw new Error("กรุณาใส่ Remove.bg API Key ในหน้าตั้งค่าก่อนใช้งาน");
+      }
+
       const response = await fetch(dataUrl);
       const blob = await response.blob();
       const formData = new FormData();
@@ -1289,7 +1378,7 @@ const App: React.FC = () => {
       const apiResponse = await fetch('https://api.remove.bg/v1.0/removebg', {
         method: 'POST',
         headers: {
-          'X-Api-Key': (import.meta as any).env.VITE_REMOVE_BG_API_KEY || 'QXnQtJFLb4JJ2uM74xnpR17N'
+          'X-Api-Key': apiKey
         },
         body: formData
       });
@@ -1363,7 +1452,7 @@ const App: React.FC = () => {
           onGoogleLogin={() => loginWithSocial('google')}
           isLoading={authLoading}
         />
-        <NotificationSystem notifications={notifications} removeNotification={removeNotification} />
+        <NotificationSystem notifications={notifications} onRemove={removeNotification} />
       </>
     );
   }
@@ -1377,9 +1466,9 @@ const App: React.FC = () => {
           </div>
           <div className="cursor-pointer group" onClick={() => setStep(1)}>
             <div className="flex items-center gap-2">
-              <h1 className="font-black text-xl tracking-tight group-hover:text-orange-500 transition-colors uppercase">PicSeller</h1>
+              <h1 className="font-black text-xl tracking-tight group-hover:text-orange-500 transition-colors uppercase">Shopee Master</h1>
               <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${theme === 'dark' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-600 border border-emerald-200'} tracking-wider`} title="Last updated: 2026-03-11 — Security Hardening">
-                v1.3.0
+                PLUS
               </span>
             </div>
             <p className={`${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'} text-[10px] font-bold uppercase tracking-[0.2em]`}>Visual Commerce Suite</p>
@@ -1390,17 +1479,30 @@ const App: React.FC = () => {
           {[1, 2, 3].map((s) => (
             <button
               key={s}
-              onClick={() => setStep(s)}
+              onClick={() => { setStudioMode(false); setStep(s); }}
               className={`px-5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${step === s ? (theme === 'dark' ? 'bg-gray-600 text-orange-400' : 'bg-white text-orange-600') : (theme === 'dark' ? 'text-gray-300 hover:text-gray-100' : 'text-slate-400 hover:text-slate-600')}`}
             >
               <span className={`w-5 h-5 flex items-center justify-center rounded-lg text-[10px] ${step === s ? (theme === 'dark' ? 'bg-orange-500 text-white' : 'bg-orange-500 text-white') : (theme === 'dark' ? 'bg-gray-600 text-gray-300' : 'bg-slate-200 text-slate-500')}`}>{s}</span>
               {s === 1 ? 'ANALYZE' : s === 2 ? 'CONFIGURE' : 'RESULTS'}
             </button>
           ))}
+          <button
+            onClick={() => setStudioMode(true)}
+            className={`px-5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${studioMode ? (theme === 'dark' ? 'bg-gray-600 text-orange-400' : 'bg-white text-orange-600') : (theme === 'dark' ? 'text-gray-300 hover:text-gray-100' : 'text-slate-400 hover:text-slate-600')}`}
+          >
+            <Sparkles className="w-4 h-4" /> THAI ADS
+          </button>
         </nav>
 
         {/* ส่วน User Profile + Theme Toggle + Logout */}
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setStudioMode(true)}
+            className={`md:hidden p-2 rounded-xl transition-colors ${studioMode ? 'bg-orange-500 text-white' : (theme === 'dark' ? 'bg-gray-700 text-orange-400' : 'bg-orange-50 text-orange-600')}`}
+            aria-label="เปิด Shopee Thai Ads Generator"
+          >
+            <Sparkles className="w-5 h-5" />
+          </button>
           {/* ปุ่มสลับธีม */}
           <button
             onClick={toggleTheme}
@@ -1408,6 +1510,16 @@ const App: React.FC = () => {
             aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
           >
             {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+          </button>
+
+          {/* ปุ่มล้างข้อมูลเซสชัน */}
+          <button
+            onClick={handleClearDB}
+            className={`p-2 rounded-xl ${theme === 'dark' ? 'bg-gray-700 text-red-400 hover:bg-gray-600' : 'bg-slate-100 text-red-500 hover:bg-slate-200'} transition-colors flex items-center gap-2`}
+            aria-label="ล้างข้อมูลเซสชัน"
+          >
+            <Trash2 className="w-5 h-5" />
+            <span className="hidden sm:inline text-xs font-black">ล้างข้อมูล</span>
           </button>
 
           {/* User Avatar + Dropdown */}
@@ -1426,7 +1538,7 @@ const App: React.FC = () => {
               <div className="hidden md:block text-left">
                 <p className={`text-xs font-black leading-tight ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{user.name}</p>
                 <p className={`text-[9px] font-bold uppercase tracking-wider ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'}`}>
-                  {user.tier === 'free' ? 'Free' : user.tier === 'starter' ? 'Starter' : user.tier === 'pro' ? 'Pro' : 'Enterprise'} • {user.credits} credits
+                  {user.unlimitedCredits ? 'Trial Unlimited' : user.tier === 'free' ? 'Free' : user.tier === 'starter' ? 'Starter' : user.tier === 'pro' ? 'Pro' : 'Enterprise'} • {user.unlimitedCredits ? 'Unlimited credits' : `${user.credits} credits`}
                 </p>
               </div>
               <ChevronDown className={`w-4 h-4 transition-transform ${showProfileDropdown ? 'rotate-180' : ''} ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'}`} />
@@ -1459,9 +1571,9 @@ const App: React.FC = () => {
                     </div>
                     <div className={`mt-3 flex items-center gap-2 px-3 py-2 rounded-xl ${theme === 'dark' ? 'bg-gray-700' : 'bg-slate-50'}`}>
                       <Zap className="w-4 h-4 text-orange-500" />
-                      <span className={`text-xs font-black ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{user.credits} credits</span>
+                      <span className={`text-xs font-black ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{user.unlimitedCredits ? 'Unlimited credits' : `${user.credits} credits`}</span>
                       <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ml-auto ${theme === 'dark' ? 'bg-orange-500/20 text-orange-400' : 'bg-orange-50 text-orange-600'}`}>
-                        {user.tier.toUpperCase()}
+                        {user.unlimitedCredits ? 'TRIAL' : user.tier.toUpperCase()}
                       </span>
                     </div>
                   </div>
@@ -1505,248 +1617,244 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <main className="flex-1 max-w-7xl mx-auto w-full p-6">
+      <main className={`flex-1 w-full px-6 py-10 ${theme === 'dark' ? 'bg-[#0b1523]' : 'bg-[#f8fafc]'}`}>
+        {studioMode ? <ShopeeAdsStudio dark={theme === 'dark'} /> : <>
         {step === 1 && (
-          <div className="max-w-4xl mx-auto mt-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className={`${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} rounded-[3rem] shadow-2xl shadow-slate-200/50 border border-slate-100 overflow-hidden`}>
-              <div className="p-12">
-                <div className="flex items-center justify-between mb-10">
-                  <div>
-                    <h2 className={`text-4xl font-black mb-3 ${theme === 'dark' ? 'text-white' : 'text-slate-900'} tracking-tight`}>เพิ่มข้อมูลสินค้า</h2>
-                    <p className={`${theme === 'dark' ? 'text-gray-400' : 'text-slate-500'} font-medium`}>เริ่มต้นเปลี่ยนสินค้าธรรมดา ให้เป็นสินค้าขายดีด้วย AI</p>
-                  </div>
-                  <div className="w-20 h-20 bg-orange-50 rounded-[2rem] flex items-center justify-center rotate-3 shadow-inner">
-                    <ShoppingBag className="text-orange-500 w-10 h-10" />
-                  </div>
-                </div>
+          <div className="mx-auto grid w-full max-w-[1320px] grid-cols-1 gap-10 lg:grid-cols-[1.08fr_0.92fr] animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <section className="space-y-7 pt-6">
+              <div>
+                <h2 className={`text-4xl font-black tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>เพิ่มข้อมูลสินค้า</h2>
+                <p className={`mt-3 text-base font-medium ${theme === 'dark' ? 'text-slate-300' : 'text-slate-500'}`}>เพิ่มรายละเอียดสินค้าและอัปโหลดรูปภาพ เพื่อเริ่มการปรับแต่งด้วย AI</p>
+              </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-                  <div className="space-y-8">
-                    <div>
-                      <label className={`block text-xs font-black ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'} mb-4 uppercase tracking-[0.15em]`}>
-                        <Globe className="w-4 h-4 text-orange-500 inline mr-2" />
-                        Shopee Product Link
-                      </label>
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          placeholder="วางลิงก์หน้าสินค้า Shopee ของคุณ..."
-                          className={`flex-1 px-6 py-5 ${theme === 'dark' ? 'bg-gray-700 text-white border-gray-600 focus:border-orange-500 focus:bg-gray-600' : 'bg-slate-50 border-slate-100 focus:border-orange-500 focus:bg-white'} border-2 rounded-2xl focus:outline-none transition-all font-bold text-slate-700 shadow-inner placeholder:${theme === 'dark' ? 'text-gray-400' : 'text-slate-300'}`}
-                          value={productUrl}
-                          onChange={(e) => setProductUrl(e.target.value)}
-                        />
-                        <button
-                          onClick={handlePreviewScrape}
-                          disabled={isScrapingOnly || !productUrl}
-                          className="px-8 bg-slate-900 hover:bg-black disabled:bg-slate-200 text-white font-black rounded-2xl transition-all flex items-center gap-2 shadow-xl shadow-slate-200 active:scale-95"
-                        >
-                          {isScrapingOnly ? <Loader2 className="w-5 h-5 animate-spin" /> : <Eye className="w-5 h-5" />}
-                        </button>
-                      </div>
-
-                    </div>
-
-                    <div className="space-y-6">
-                      <div>
-                        <label className={`block text-xs font-black ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'} mb-3 uppercase tracking-[0.15em]`}>
-                          ชื่อสินค้า
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="ระบุชื่อสินค้า (Optional)"
-                          className={`w-full px-6 py-5 ${theme === 'dark' ? 'bg-gray-700 text-white border-gray-600 focus:border-orange-500' : 'bg-slate-50 border-slate-100 focus:border-orange-500'} border-2 rounded-2xl focus:outline-none transition-all font-bold text-slate-700 shadow-inner`}
-                          value={productName}
-                          onChange={(e) => setProductName(e.target.value)}
-                        />
-                      </div>
-
-                      <div>
-                        <label className={`block text-xs font-black ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'} mb-3 uppercase tracking-[0.15em]`}>
-                          รายละเอียดสินค้า
-                        </label>
-                        <textarea
-                          rows={6}
-                          placeholder="สรุปจุดขาย หรือสิ่งที่ต้องการให้ AI เน้นเป็นพิเศษ..."
-                          className={`w-full px-6 py-5 ${theme === 'dark' ? 'bg-gray-700 text-white border-gray-600 focus:border-orange-500' : 'bg-slate-50 border-slate-100 focus:border-orange-500'} border-2 rounded-2xl focus:outline-none transition-all font-bold text-slate-700 shadow-inner resize-y min-h-[120px] max-h-[500px]`}
-                          value={productDesc}
-                          onChange={(e) => setProductDesc(e.target.value)}
-                        />
-
-                        {/* ตัวเลือกความยาวสรุป */}
-                        <div className="mt-3 flex items-center gap-2">
-                          <span className={`text-xs font-bold ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'} whitespace-nowrap`}>ความยาวสรุป:</span>
-                          <div className="flex gap-1 flex-1">
-                            {[
-                              { value: 'short' as const, label: 'สั้น' },
-                              { value: 'medium' as const, label: 'ปานกลาง' },
-                              { value: 'long' as const, label: 'ละเอียด' },
-                            ].map(opt => (
-                              <button
-                                key={opt.value}
-                                onClick={() => setSummaryLength(opt.value)}
-                                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all ${summaryLength === opt.value
-                                  ? 'bg-orange-500 text-white shadow-md'
-                                  : theme === 'dark'
-                                    ? 'bg-gray-600 text-gray-300 hover:bg-gray-500'
-                                    : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                                  }`}
-                              >
-                                {opt.label}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        <button
-                          onClick={handleSummarize}
-                          disabled={isSummarizing || (!productDesc && localImages.length === 0 && scrapedImages.length === 0)}
-                          className={`mt-3 w-full py-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${isSummarizing
-                            ? 'bg-slate-100 text-slate-400 cursor-wait'
-                            : 'bg-gradient-to-r from-orange-400 to-orange-600 text-white hover:shadow-lg active:scale-95'
-                            }`}
-                        >
-                          {isSummarizing ? (
-                            <>
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                              กำลังสรุปข้อมูล...
-                            </>
-                          ) : (
-                            <>
-                              <Wand2 className="w-4 h-4" />
-                              สรุปจุดขายสินค้าอัตโนมัติ (AI Magic)
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-8">
-                    <label className={`block text-xs font-black ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'} mb-4 uppercase tracking-[0.15em]`}>
-                      <Upload className="w-4 h-4 text-orange-500 inline mr-2" />
-                      Manual Upload
-                    </label>
-                    <div
-                      onClick={() => fileInputRef.current?.click()}
-                      className={`${theme === 'dark' ? 'border-gray-600 bg-gray-800 hover:bg-gray-700' : 'border-slate-100 bg-slate-50/50 hover:bg-white'} border-4 border-dashed rounded-[3rem] p-12 flex flex-col items-center justify-center gap-5 transition-all cursor-pointer group h-full min-h-[300px] shadow-inner`}
-                    >
-                      <div className="w-20 h-20 rounded-[2rem] bg-white shadow-xl flex items-center justify-center text-slate-300 group-hover:text-orange-500 transition-all group-hover:scale-110 group-hover:-rotate-3">
-                        <Plus className="w-10 h-10" />
-                      </div>
-                      <div className="text-center">
-                        <p className={`${theme === 'dark' ? 'text-white' : 'text-slate-800'} font-black text-lg`}>ลากไฟล์มาวางที่นี่</p>
-                        <p className={`${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'} text-xs mt-2 font-bold uppercase tracking-widest`}>รองรับ PNG, JPG, WEBP</p>
-                      </div>
-                      <input type="file" multiple accept="image/*" className="hidden" ref={fileInputRef} onChange={handleFileChange} />
-                    </div>
-
-                  </div>
-                </div>
-
-                {/* New Unified Preview Section */}
-                {(localImages.length > 0 || scrapedImages.length > 0) && (
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 mt-12">
-                    {[...localImages, ...scrapedImages].map((src, i) => {
-                      // ตรวจสอบว่าเป็นภาพที่อัปโหลดจากผู้ใช้หรือไม่
-                      const isLocalImage = i < localImages.length;
-
-                      return (
-                        <div key={i} className={`${theme === 'dark' ? 'bg-gray-700' : 'bg-white'} p-4 rounded-[2rem] shadow-xl shadow-slate-200/50 border border-slate-100 animate-in zoom-in duration-500`}>
-                          <div className="relative aspect-[4/3] rounded-2xl overflow-hidden group">
-                            <img src={src} className="w-full h-full object-cover" />
-                            <button
-                              onClick={() => {
-                                if (i < localImages.length) removeLocalImage(i);
-                                else removeScrapedImage(i - localImages.length);
-                              }}
-                              className="absolute top-2 right-2 p-1.5 bg-white/90 rounded-full text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-
-                            {/* ปุ่มเลือกภาพหลักสำหรับภาพที่อัปโหลด */}
-                            {isLocalImage && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setMainImageIndex(i);
-                                }}
-                                className={`absolute top-2 left-2 p-1.5 rounded-full ${mainImageIndex === i
-                                  ? 'bg-orange-500 text-white'
-                                  : 'bg-white/90 text-gray-500'
-                                  } opacity-0 group-hover:opacity-100 transition-opacity`}
-                                title="ตั้งเป็นภาพหลัก"
-                              >
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-star">
-                                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                                </svg>
-                              </button>
-                            )}
-
-                            {/* ปุ่มลบพื้นหลังและปุ่มแก้ไขและปุ่มกู้คืน */}
-                            <div className="absolute bottom-2 left-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const index = isLocalImage ? i : i - localImages.length;
-                                  setEditingImageParams({
-                                    isScraped: !isLocalImage,
-                                    index,
-                                    url: src
-                                  });
-                                }}
-                                className="p-1.5 bg-white/90 rounded-full text-orange-500 shadow-sm hover:scale-110 transition-transform"
-                                title="ตกแต่งรูปภาพ"
-                              >
-                                <Edit2 className="w-4 h-4" />
-                              </button>
-                              
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const index = isLocalImage ? i : i - localImages.length;
-                                  removeBackground(src, index, !isLocalImage);
-                                }}
-                                className="p-1.5 bg-white/90 rounded-full text-blue-500 shadow-sm hover:scale-110 transition-transform"
-                                title="ลบพื้นหลัง"
-                              >
-                                <Scissors className="w-4 h-4" />
-                              </button>
-
-                              {/* ปุ่มกู้คืน (แสดงเฉพาะเมื่อมีการเปลี่ยนแปลง) */}
-                              {((isLocalImage && src !== originalLocalImages[i]) || (!isLocalImage && src !== originalScrapedImages[i - localImages.length])) && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const index = isLocalImage ? i : i - localImages.length;
-                                    restoreBackground(index, !isLocalImage);
-                                  }}
-                                  className="p-1.5 bg-white/90 rounded-full text-green-500 shadow-sm hover:scale-110 transition-transform"
-                                  title="กู้คืนภาพเดิม"
-                                >
-                                  <RotateCcw className="w-4 h-4" />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                <div className="mt-24">
+              <div>
+                <label className={`mb-3 flex items-center gap-2 text-xs font-black uppercase tracking-[0.12em] ${theme === 'dark' ? 'text-slate-300' : 'text-slate-600'}`}>
+                  <Globe className="h-4 w-4 text-orange-500" />
+                  Shopee Product Link
+                </label>
+                <div className={`flex overflow-hidden rounded-2xl border shadow-sm ${theme === 'dark' ? 'border-slate-700 bg-slate-800/80 shadow-black/20' : 'border-slate-200 bg-white shadow-slate-200/80'}`}>
+                  <input
+                    type="text"
+                    placeholder="วางลิงก์สินค้า Shopee ของคุณที่นี่"
+                    className={`min-h-[58px] flex-1 px-5 text-sm font-bold outline-none ${theme === 'dark' ? 'bg-transparent text-white placeholder:text-slate-500' : 'bg-transparent text-slate-800 placeholder:text-slate-400'}`}
+                    value={productUrl}
+                    onChange={(e) => setProductUrl(e.target.value)}
+                  />
                   <button
-                    onClick={handleScrape}
-                    disabled={isAnalyzing}
-                    className="w-full bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 disabled:from-slate-300 disabled:to-slate-400 text-white font-black py-6 rounded-[2rem] transition-all shadow-2xl shadow-orange-200 flex items-center justify-center gap-4 text-xl tracking-tight active:scale-95"
+                    onClick={handlePreviewScrape}
+                    disabled={isScrapingOnly || !productUrl}
+                    className={`grid w-16 place-items-center transition-all ${theme === 'dark' ? 'bg-slate-100 text-slate-900 hover:bg-white disabled:bg-slate-700 disabled:text-slate-500' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:text-slate-300'}`}
+                    aria-label="Preview product link"
                   >
-                    {isAnalyzing ? <Loader2 className="animate-spin w-8 h-8" /> : <Sparkles className="w-8 h-8" />}
-                    เริ่มวิเคราะห์สินค้าด้วย AI
+                    {isScrapingOnly ? <Loader2 className="h-5 w-5 animate-spin" /> : <Globe className="h-5 w-5" />}
                   </button>
                 </div>
               </div>
-            </div>
+
+              <div className="space-y-5">
+                <div>
+                  <div className="mb-3 flex items-center justify-between">
+                    <label className={`text-sm font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>ชื่อสินค้า</label>
+                    <span className={`text-xs font-bold ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>{productName.length} / 120</span>
+                  </div>
+                  <input
+                    type="text"
+                    maxLength={120}
+                    placeholder="กรอกชื่อสินค้าของคุณ"
+                    className={`min-h-[58px] w-full rounded-2xl border px-5 text-sm font-bold outline-none transition-all ${theme === 'dark' ? 'border-slate-700 bg-slate-800/80 text-white placeholder:text-slate-500 focus:border-orange-500' : 'border-slate-200 bg-white text-slate-800 placeholder:text-slate-400 shadow-sm shadow-slate-200/80 focus:border-orange-400'}`}
+                    value={productName}
+                    onChange={(e) => setProductName(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <div className="mb-3 flex items-center justify-between">
+                    <label className={`text-sm font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>รายละเอียดสินค้า</label>
+                    <span className={`text-xs font-bold ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>{productDesc.length} / 2000</span>
+                  </div>
+                  <textarea
+                    rows={7}
+                    maxLength={2000}
+                    placeholder={`เคล็ดลับ: รายละเอียดสินค้าที่ดีจะช่วยให้ AI เข้าใจสินค้าได้ดียิ่งขึ้น\n\n• คุณสมบัติเด่นของสินค้า\n• วัสดุ / ขนาด / สี\n• จุดเด่นที่ทำให้สินค้าของคุณแตกต่าง\n• กลุ่มลูกค้าเป้าหมาย`}
+                    className={`w-full resize-y rounded-2xl border px-5 py-5 text-sm font-medium leading-7 outline-none transition-all ${theme === 'dark' ? 'border-slate-700 bg-slate-800/80 text-white placeholder:text-slate-400 focus:border-orange-500' : 'border-slate-200 bg-white text-slate-800 placeholder:text-slate-500 shadow-sm shadow-slate-200/80 focus:border-orange-400'}`}
+                    value={productDesc}
+                    onChange={(e) => setProductDesc(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <p className={`mb-3 text-sm font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>ความยาวรายละเอียด</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      { value: 'short' as const, label: 'สั้น', desc: 'กระชับ เข้าใจง่าย' },
+                      { value: 'medium' as const, label: 'ปานกลาง', desc: 'รายละเอียดครบถ้วน' },
+                      { value: 'long' as const, label: 'ละเอียด', desc: 'ข้อมูลครบทุกมิติ' },
+                    ].map(opt => (
+                      <button
+                        key={opt.value}
+                        onClick={() => setSummaryLength(opt.value)}
+                        className={`min-h-[70px] rounded-2xl border px-3 text-center transition-all ${summaryLength === opt.value
+                          ? 'border-orange-500 bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg shadow-orange-500/20'
+                          : theme === 'dark'
+                            ? 'border-slate-700 bg-slate-800/80 text-slate-300 hover:border-slate-600'
+                            : 'border-slate-200 bg-white text-slate-700 shadow-sm shadow-slate-200/80 hover:border-slate-300'
+                          }`}
+                      >
+                        <span className="block text-sm font-black">{opt.label}</span>
+                        <span className={`mt-1 block text-[11px] font-bold ${summaryLength === opt.value ? 'text-orange-50' : theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>{opt.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleSummarize}
+                  disabled={isSummarizing || (!productDesc && localImages.length === 0 && scrapedImages.length === 0)}
+                  className="flex min-h-[54px] w-full items-center justify-center gap-3 rounded-2xl bg-gradient-to-r from-orange-500 to-orange-600 px-5 text-sm font-black text-white shadow-lg shadow-orange-500/20 transition-all hover:from-orange-600 hover:to-orange-700 disabled:cursor-not-allowed disabled:from-slate-300 disabled:to-slate-400 active:scale-[0.99]"
+                >
+                  {isSummarizing ? <Loader2 className="h-5 w-5 animate-spin" /> : <Wand2 className="h-5 w-5" />}
+                  AI ช่วยเขียนรายละเอียดสินค้า
+                </button>
+
+                <button
+                  onClick={handleScrape}
+                  disabled={isAnalyzing}
+                  className="flex min-h-[58px] w-full items-center justify-center gap-3 rounded-2xl bg-gradient-to-r from-orange-500 to-orange-600 px-6 text-base font-black text-white shadow-xl shadow-orange-500/20 transition-all hover:from-orange-600 hover:to-orange-700 disabled:cursor-wait disabled:from-slate-300 disabled:to-slate-400 active:scale-[0.99]"
+                >
+                  {isAnalyzing ? <Loader2 className="h-6 w-6 animate-spin" /> : <Sparkles className="h-5 w-5" />}
+                  เริ่มวิเคราะห์สินค้าด้วย AI
+                </button>
+              </div>
+
+              <div>
+                <p className={`mb-4 text-sm font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>รูปภาพสินค้าอ้างอิง (ไม่บังคับ)</p>
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                  {[...localImages, ...scrapedImages].map((src, i) => {
+                    const isLocalImage = i < localImages.length;
+                    return (
+                      <div key={i} className={`group relative aspect-square overflow-hidden rounded-2xl border ${theme === 'dark' ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-white shadow-sm shadow-slate-200/80'}`}>
+                        <img src={src} className="h-full w-full object-cover" />
+                        <button
+                          onClick={() => {
+                            if (i < localImages.length) removeLocalImage(i);
+                            else removeScrapedImage(i - localImages.length);
+                          }}
+                          className="absolute right-2 top-2 rounded-full bg-white/90 p-1.5 text-red-500 opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
+                          aria-label="Remove image"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                        <div className="absolute bottom-2 left-2 flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const index = isLocalImage ? i : i - localImages.length;
+                              setEditingImageParams({ isScraped: !isLocalImage, index, url: src });
+                            }}
+                            className="rounded-full bg-white/90 p-1.5 text-orange-500 shadow-sm"
+                            title="ตกแต่งรูปภาพ"
+                          >
+                            <Edit2 className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const index = isLocalImage ? i : i - localImages.length;
+                              removeBackground(src, index, !isLocalImage);
+                            }}
+                            className="rounded-full bg-white/90 p-1.5 text-blue-500 shadow-sm"
+                            title="ลบพื้นหลัง"
+                          >
+                            <Scissors className="h-4 w-4" />
+                          </button>
+                          {((isLocalImage && src !== originalLocalImages[i]) || (!isLocalImage && src !== originalScrapedImages[i - localImages.length])) && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const index = isLocalImage ? i : i - localImages.length;
+                                restoreBackground(index, !isLocalImage);
+                              }}
+                              className="rounded-full bg-white/90 p-1.5 text-green-500 shadow-sm"
+                              title="กู้คืนภาพเดิม"
+                            >
+                              <RotateCcw className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`aspect-square rounded-2xl border border-dashed p-4 transition-all ${theme === 'dark' ? 'border-slate-600 bg-slate-900/50 text-slate-300 hover:bg-slate-800' : 'border-slate-300 bg-white text-slate-600 shadow-sm shadow-slate-200/80 hover:border-orange-300'}`}
+                  >
+                    <Plus className="mx-auto mb-3 h-7 w-7" />
+                    <span className="block text-sm font-black">เพิ่มรูปภาพ</span>
+                    <span className={`mt-2 block text-xs font-bold ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>PNG, JPG, WEBP</span>
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <aside className="space-y-7 pt-24 lg:pt-28">
+              <div className={`rounded-3xl border p-6 shadow-xl ${theme === 'dark' ? 'border-slate-700 bg-slate-800/70 shadow-black/20' : 'border-slate-100 bg-white shadow-slate-200/70'}`}>
+                <label className={`mb-5 flex items-center gap-2 text-sm font-black uppercase tracking-wide ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>
+                  <Upload className="h-4 w-4 text-orange-500" />
+                  Manual Upload
+                </label>
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`grid min-h-[250px] cursor-pointer place-items-center rounded-3xl border border-dashed p-8 text-center transition-all ${theme === 'dark' ? 'border-slate-600 bg-slate-900/30 hover:bg-slate-900/60' : 'border-slate-300 bg-white hover:border-orange-300'}`}
+                >
+                  <div>
+                    <div className={`mx-auto mb-6 grid h-16 w-16 place-items-center rounded-3xl border ${theme === 'dark' ? 'border-orange-500/50 bg-orange-500/10 text-orange-400' : 'border-orange-200 bg-orange-50 text-orange-500'}`}>
+                      <Upload className="h-8 w-8" />
+                    </div>
+                    <p className={`text-xl font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>ลากและวางไฟล์ที่นี่</p>
+                    <p className={`mt-2 text-sm font-bold ${theme === 'dark' ? 'text-slate-300' : 'text-slate-500'}`}>หรือคลิกเพื่อเลือกไฟล์</p>
+                    <p className={`mt-4 text-xs font-bold leading-6 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>รองรับ: PNG, JPG, WEBP<br />ขนาดสูงสุด 10MB</p>
+                  </div>
+                  <input type="file" multiple accept="image/*" className="hidden" ref={fileInputRef} onChange={handleFileChange} />
+                </div>
+              </div>
+
+              <div className={`rounded-3xl border p-7 shadow-xl ${theme === 'dark' ? 'border-slate-700 bg-slate-800/70 shadow-black/20' : 'border-slate-100 bg-white shadow-slate-200/70'}`}>
+                <h3 className="mb-6 flex items-center gap-2 text-lg font-black text-orange-500">
+                  <Sparkles className="h-5 w-5" />
+                  ทำไมต้องใช้ AI ช่วยปรับแต่ง?
+                </h3>
+                {[
+                  { title: 'ประหยัดเวลา', desc: 'AI ช่วยวิเคราะห์และปรับแต่งรูปภาพภายในไม่กี่วินาที', icon: Zap },
+                  { title: 'เพิ่มยอดขาย', desc: 'รูปภาพสวยงาม ดึงดูดลูกค้ามากขึ้น', icon: Target },
+                  { title: 'มืออาชีพ', desc: 'ได้ภาพคุณภาพระดับมืออาชีพโดยไม่ต้องมีทักษะการออกแบบ', icon: CheckCircle2 },
+                  { title: 'สม่ำเสมอ', desc: 'รักษาโทนสีและสไตล์ให้สอดคล้องกับแบรนด์', icon: ImageIcon },
+                ].map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <div key={item.title} className="mb-5 flex items-start gap-4 last:mb-0">
+                      <div className={`mt-1 grid h-9 w-9 flex-none place-items-center rounded-xl ${theme === 'dark' ? 'bg-orange-500/15 text-orange-400' : 'bg-orange-50 text-orange-500'}`}>
+                        <Icon className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <p className={`text-sm font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{item.title}</p>
+                        <p className={`mt-1 text-sm font-medium leading-6 ${theme === 'dark' ? 'text-slate-300' : 'text-slate-500'}`}>{item.desc}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className={`ml-auto flex w-fit items-center gap-3 rounded-2xl border px-5 py-4 shadow-lg ${theme === 'dark' ? 'border-slate-700 bg-slate-800/80 shadow-black/20' : 'border-slate-100 bg-white shadow-slate-200/70'}`}>
+                <div className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-500 text-white">
+                  <CheckCircle2 className="h-6 w-6" />
+                </div>
+                <div>
+                  <p className={`text-sm font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>ระบบพร้อมใช้งาน</p>
+                  <p className={`text-xs font-medium ${theme === 'dark' ? 'text-slate-300' : 'text-slate-500'}`}>AI Model: Shopee Master v2.0</p>
+                </div>
+              </div>
+            </aside>
           </div>
         )}
 
@@ -2249,6 +2357,11 @@ const App: React.FC = () => {
                             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex items-end p-10">
                               <div className="flex flex-col gap-4 w-full">
                                 <div className="bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/20">
+                                  {img.modelUsed && (
+                                    <p className="text-emerald-200 text-[10px] font-black uppercase tracking-widest mb-2">
+                                      MODEL USED: {img.modelUsed}
+                                    </p>
+                                  )}
                                   <p className="text-white text-[10px] font-black uppercase tracking-widest mb-1">PROMPT USED</p>
                                   {!editingPrompt[catKey] ? (
                                     <>
@@ -2435,7 +2548,7 @@ const App: React.FC = () => {
                                 )}
                                 {/* Per-image Aspect Ratio Selector */}
                                 <div className="mb-3 bg-white/10 backdrop-blur-md p-3 rounded-2xl border border-white/20">
-                                  <p className="text-white text-[9px] font-black uppercase tracking-wider mb-2 flex items-center gap-1">
+                                  <p className="text-white text-[9px] font-black uppercase tracking-widest mb-2 flex items-center gap-1">
                                     <LayoutGrid className="w-3 h-3" />
                                     Ratio ภาพนี้ {imageAspectRatios[catKey] && imageAspectRatios[catKey] !== selectedAspectRatio ? <span className="text-orange-300 ml-1">(Override)</span> : ''}
                                   </p>
@@ -2468,7 +2581,7 @@ const App: React.FC = () => {
                                     <Download className="w-5 h-5" /> บันทึกภาพ
                                   </button>
                                   <button
-                                    onClick={() => {
+                                    onClick={(e) => {
                                       // คำนวณ styleIndex สำหรับหมวดที่รองรับการเลือกสไตล์
                                       let styleIdx: number | undefined;
                                       if (catKey === 'INFOGRAPHIC') {
@@ -2645,6 +2758,7 @@ const App: React.FC = () => {
           </div>
         )
         }
+        </>}
       </main >
 
       <footer className={`${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-slate-100'} border-t py-16 px-8 mt-24`}>

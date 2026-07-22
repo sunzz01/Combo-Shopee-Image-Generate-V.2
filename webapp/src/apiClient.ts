@@ -8,6 +8,7 @@
  */
 
 import { ImageCategory, ImageGenerationResult, ProductData } from '../types';
+import { auth } from './firebase';
 
 // ═══════════════════════════════════════════════════════════════
 //  Config
@@ -19,6 +20,8 @@ import { ImageCategory, ImageGenerationResult, ProductData } from '../types';
  * - In development: set VITE_API_BASE_URL in .env (e.g., "http://localhost:3000")
  */
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const MAX_API_IMAGE_BYTES = 360_000;
+const MAX_API_PAYLOAD_BYTES = 1_850_000;
 
 // ═══════════════════════════════════════════════════════════════
 //  Types (mirror server-side interfaces)
@@ -31,6 +34,95 @@ export interface ProductAnalysis {
   visualDescription: string;
 }
 
+export interface ShopeeAdBrief {
+  role: string;
+  title: string;
+  objective: string;
+  facts: string[];
+  thaiCopy: string[];
+  includePerson?: boolean;
+  personBrief?: string;
+}
+
+const estimateBase64Bytes = (value: string): number => Math.ceil((value.length * 3) / 4);
+
+async function shrinkImageForApi(
+  dataUrl: string,
+  maxEdge: number,
+  qualitySteps: number[],
+): Promise<string> {
+  if (!dataUrl.startsWith('data:image/')) return dataUrl;
+
+  const approximateBytes = estimateBase64Bytes(dataUrl);
+  if (approximateBytes <= MAX_API_IMAGE_BYTES && maxEdge >= 1024) return dataUrl;
+
+  const image = new Image();
+  image.decoding = 'async';
+  const loaded = new Promise<void>((resolve, reject) => {
+    image.onload = () => resolve();
+    image.onerror = () => reject(new Error('Unable to load image for compression'));
+  });
+  image.src = dataUrl;
+  await loaded;
+
+  const scale = Math.min(1, maxEdge / Math.max(image.naturalWidth, image.naturalHeight));
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return dataUrl;
+
+  ctx.drawImage(image, 0, 0, width, height);
+
+  for (const quality of qualitySteps) {
+    const compressed = canvas.toDataURL('image/jpeg', quality);
+    const compressedBytes = estimateBase64Bytes(compressed);
+    if (compressedBytes <= MAX_API_IMAGE_BYTES || quality === qualitySteps[qualitySteps.length - 1]) {
+      return compressed;
+    }
+  }
+
+  return canvas.toDataURL('image/jpeg', qualitySteps[qualitySteps.length - 1] ?? 0.42);
+}
+
+async function prepareImagesForApi(images?: string[], maxImages: number = 4): Promise<string[] | undefined> {
+  if (!images?.length) return undefined;
+  const sourceImages = images.filter(Boolean).slice(0, maxImages);
+  const compressionProfiles = [
+    { maxEdge: 900, qualitySteps: [0.72, 0.62, 0.52, 0.44] },
+    { maxEdge: 720, qualitySteps: [0.64, 0.54, 0.46, 0.38] },
+    { maxEdge: 560, qualitySteps: [0.56, 0.48, 0.4, 0.34] },
+    { maxEdge: 420, qualitySteps: [0.48, 0.4, 0.34, 0.28] },
+  ];
+
+  let bestEffort: string[] = [];
+  for (const profile of compressionProfiles) {
+    const prepared = await Promise.all(
+      sourceImages.map((image) => shrinkImageForApi(image, profile.maxEdge, profile.qualitySteps)),
+    );
+    const totalBytes = prepared.reduce((sum, image) => sum + estimateBase64Bytes(image), 0);
+    bestEffort = prepared;
+
+    if (totalBytes <= MAX_API_PAYLOAD_BYTES) {
+      return prepared;
+    }
+  }
+
+  const packed: string[] = [];
+  let totalBytes = 0;
+  for (const image of bestEffort) {
+    const imageBytes = estimateBase64Bytes(image);
+    if (packed.length > 0 && totalBytes + imageBytes > MAX_API_PAYLOAD_BYTES) break;
+    packed.push(image);
+    totalBytes += imageBytes;
+  }
+
+  return packed.length ? packed : undefined;
+}
+
 // ═══════════════════════════════════════════════════════════════
 //  Generic fetch wrapper with error handling
 // ═══════════════════════════════════════════════════════════════
@@ -38,23 +130,54 @@ export interface ProductAnalysis {
 async function apiPost<T>(path: string, body: any): Promise<T> {
   const url = `${API_BASE}${path}`;
   console.log(`[ApiClient] POST ${url}`);
+  const token = await auth.currentUser?.getIdToken();
+
+  if (!token) {
+    throw new Error('กรุณาเข้าสู่ระบบก่อนใช้งาน AI');
+  }
 
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
     body: JSON.stringify(body),
   });
 
+  const contentType = response.headers.get('content-type') || '';
+  const rawBody = await response.text();
+  const looksLikeHtml = rawBody.trim().startsWith('<!DOCTYPE') || rawBody.trim().startsWith('<html');
+  const parseJsonBody = () => {
+    try {
+      return rawBody ? JSON.parse(rawBody) : {};
+    } catch {
+      return null;
+    }
+  };
+
   if (!response.ok) {
     let errorMsg = `API error ${response.status}`;
-    try {
-      const errBody = await response.json();
+    const errBody = parseJsonBody();
+    if (errBody) {
       errorMsg = errBody.error || errorMsg;
-    } catch { /* ignore */ }
+    } else if (looksLikeHtml) {
+      errorMsg = 'API ส่งหน้าเว็บกลับมาแทน JSON กรุณาตรวจ Vercel API route, Root Directory และค่า VITE_API_BASE_URL';
+    } else if (rawBody.trim()) {
+      errorMsg = rawBody.slice(0, 300);
+    }
+    if (response.status === 413) {
+      errorMsg = 'รูปภาพที่ส่งไปยัง AI มีขนาดใหญ่เกินไป กรุณาลองใช้รูปน้อยลงหรือรูปที่เล็กลง';
+    }
     throw new Error(errorMsg);
   }
 
-  return response.json();
+  const data = parseJsonBody();
+  if (!data || looksLikeHtml || !contentType.includes('application/json')) {
+    throw new Error('API ส่งหน้าเว็บกลับมาแทน JSON กรุณาตรวจว่า Vercel deploy มีโฟลเดอร์ api และไม่ได้ตั้ง VITE_API_BASE_URL ไปผิดโปรเจกต์');
+  }
+
+  return data as T;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -69,15 +192,16 @@ export async function analyzeProduct(
   productInfo: string,
   images?: string[],
 ): Promise<ProductAnalysis> {
+  const apiImages = await prepareImagesForApi(images, 4);
   return apiPost<ProductAnalysis>('/api/analyze', {
     productInfo,
-    images,
+    images: apiImages,
   });
 }
 
 /**
  * Generate product image using Vertex AI.
- * Calls POST /api/generate-image
+ * Calls POST /api/generate
  */
 export async function generateProductImage(
   category: ImageCategory,
@@ -93,25 +217,32 @@ export async function generateProductImage(
   let prompt = '';
 
   if (customPrompt) {
-    prompt = customPrompt;
+    prompt = buildGroundedProductPrompt(customPrompt, category, productData);
   } else {
     // Build category-specific prompt
-    prompt = buildCategoryPrompt(category, productData, style, styleIndex);
+    prompt = buildGroundedProductPrompt(
+      buildCategoryPrompt(category, productData, style, styleIndex),
+      category,
+      productData,
+    );
   }
 
+  const apiImages = await prepareImagesForApi(productData.images, 3);
   const result = await apiPost<{
     imageUrl: string;
     promptUsed: string;
     model: string;
     textResponse?: string;
-  }>('/api/generate-image', {
+    thaiTextPlan?: string[];
+  }>('/api/generate', {
     prompt,
-    images: productData.images,
+    images: apiImages,
     model: imageModel,
     aspectRatio,
     category,
     style,
     customPrompt,
+    productData,
   });
 
   // Build thaiTexts for reference
@@ -119,11 +250,54 @@ export async function generateProductImage(
   if (result.textResponse) {
     thaiTexts.push(`AI อธิบาย: ${result.textResponse.substring(0, 300)}`);
   }
+  if (Array.isArray(result.thaiTextPlan)) {
+    result.thaiTextPlan.forEach((text, index) => {
+      thaiTexts.push(`ข้อความไทยแนะนำ ${index + 1}: ${text}`);
+    });
+  }
 
   return {
     imageUrl: result.imageUrl,
     promptUsed: result.promptUsed,
     thaiTexts,
+    modelUsed: result.model,
+  };
+}
+
+/** Generate one fact-grounded image in the Thai Detail-Rich Shopee ads workflow. */
+export async function generateShopeeAdImage(
+  productData: ProductData,
+  brief: ShopeeAdBrief,
+  imageModel = 'product-recontext-v1',
+): Promise<ImageGenerationResult> {
+  const facts = brief.facts.filter(Boolean).join(' | ');
+  const thaiCopy = brief.thaiCopy.filter(Boolean).join(' | ');
+  const prompt = [
+    'Create a square Thai Shopee ecommerce advertisement for the exact attached product.',
+    `Image role: ${brief.role}. Objective: ${brief.objective}.`,
+    'Thai high-information ecommerce design: clear product hierarchy, professional callout areas, crisp commercial lighting, and a clean mobile-safe central composition.',
+    `Confirmed facts only: ${facts || 'Use only visible product details.'}`,
+    thaiCopy ? `Text to be added later as editable Thai overlay (do not attempt to render it inside the generated image): ${thaiCopy}. Leave intentional clean overlay zones instead.` : '',
+    brief.includePerson ? `Include an adult Thai or Asian person using the exact product naturally. ${brief.personBrief || 'The product must remain large and clearly visible in the foreground.'}` : 'No people unless required by the image role.',
+    'Preserve product identity exactly: shape, color, materials, labels, proportions, included pieces. Never invent measurements, certifications, prices, promotions, reviews, accessories, variants, or performance claims.',
+  ].filter(Boolean).join('\n\n');
+
+  const apiImages = await prepareImagesForApi(productData.images, 3);
+  const result = await apiPost<{ imageUrl: string; promptUsed: string; model: string; thaiTextPlan?: string[] }>('/api/generate', {
+    prompt,
+    images: apiImages,
+    model: imageModel,
+    aspectRatio: '1:1',
+    category: 'SHOPEE_THAI_AD',
+    productData,
+    adBrief: brief,
+  });
+
+  return {
+    imageUrl: result.imageUrl,
+    promptUsed: result.promptUsed,
+    thaiTexts: result.thaiTextPlan?.length ? result.thaiTextPlan : brief.thaiCopy,
+    modelUsed: result.model,
   };
 }
 
@@ -136,9 +310,10 @@ export async function summarizeProductDescription(
   images?: string[],
   summaryLength: 'short' | 'medium' | 'long' = 'medium',
 ): Promise<string> {
+  const apiImages = await prepareImagesForApi(images, 3);
   const result = await apiPost<{ summary: string }>('/api/summarize', {
     currentDesc,
-    images,
+    images: apiImages,
     summaryLength,
   });
   return result.summary;
@@ -161,6 +336,22 @@ function pickStyle<T>(arr: T[], styleIndex?: number): T {
     return arr[styleIndex - 1];
   }
   return pickRandom(arr);
+}
+
+function buildGroundedProductPrompt(
+  taskPrompt: string,
+  category: ImageCategory,
+  productData: ProductData,
+): string {
+  const features = productData.features?.filter(Boolean).slice(0, 8) || [];
+  return [
+    `Create a ${category} ecommerce image for this exact product.`,
+    `Product name: ${productData.name || 'Unknown product'}`,
+    productData.description ? `Product description: ${productData.description}` : '',
+    features.length ? `Key product features: ${features.join(' | ')}` : '',
+    'Use the attached product reference images as the source of truth. Preserve the same product identity, shape, color, materials, logos/labels, and visible details. Improve only the scene, lighting, background, composition, and sales presentation. Do not invent a different product.',
+    `Image task: ${taskPrompt}`,
+  ].filter(Boolean).join('\n\n');
 }
 
 // ─── INFOGRAPHIC Variations (6 สไตล์) ────────────────────────────

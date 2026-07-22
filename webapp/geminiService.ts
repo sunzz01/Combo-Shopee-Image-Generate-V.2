@@ -11,11 +11,13 @@ import {
 //  MODE DETECTION — Vertex AI (API) vs Direct Gemini (Dev)
 // ═══════════════════════════════════════════════════════════════
 /**
- * When VITE_API_BASE_URL is set (or in production on Vercel),
+ * In production, all AI calls go through serverless API routes.
+ * In development, set VITE_USE_VERTEX_AI=true or VITE_API_BASE_URL to test that path.
  * all AI calls go through our serverless API → Vertex AI (secure).
  * When not set, falls back to direct Gemini API key mode (development).
  */
 const USE_VERTEX_AI = !!(
+  import.meta.env.PROD ||
   import.meta.env.VITE_API_BASE_URL ||
   import.meta.env.VITE_USE_VERTEX_AI === 'true'
 );
@@ -49,11 +51,11 @@ export const MODEL_REGISTRY = {
    * imagen-3.0-generate-001        = Imagen 3 Standard (ใช้ generateImages API แยก)
    */
   image: [
-    'imagen-3.0-generate-002',       // Imagen 3 Standard (แนะนำสำหรับสร้างภาพทั่วไป)
-    'imagen-3.0-fast-generate-001',  // Imagen 3 Fast
-    'gemini-2.5-flash-image',
     'gemini-3.1-flash-image-preview',
+    'gemini-2.5-flash-image',
     'gemini-3-pro-image-preview',
+    'imagen-3.0-generate-002',       // Imagen 3 Standard (ใช้ generateImages API — fallback ท้ายสุด)
+    'imagen-3.0-fast-generate-001',  // Imagen 3 Fast
   ],
 };
 
@@ -424,15 +426,27 @@ async function smartRetry<T>(
 
   // ทุก combination ล้มเหลว
   const detail = lastError?.message || 'Unknown error';
+
+  // ตรวจสอบว่าเป็น quota error หรือไม่
+  const isQuota = isQuotaError(detail);
+
   throw new Error(
     `ลองแล้ว ${tried.length} ครั้ง ไม่สำเร็จ\n` +
     `Models: ${models.join(', ')}\n` +
     `Keys: ${keys.length} ตัว\n` +
     `Error: ${detail}\n\n` +
-    `💡 วิธีแก้:\n` +
-    `• เพิ่ม API Key ใหม่ในการตั้งค่า (⚙️)\n` +
-    `• ตรวจสอบโควต้าที่ https://ai.google.dev/gemini-api/docs/rate-limits\n` +
-    `• รอ 1 นาทีแล้วลองใหม่`
+    (isQuota
+      ? `🚨 โควต้า API KEY หมด!\n\n` +
+        `🔑 วิธีแก้:\n` +
+        `   1. ไปที่ https://aistudio.google.com/apikey 🔗\n` +
+        `   2. สร้าง API Key ใหม่ (ฟรี)\n` +
+        `   3. เพิ่ม Key ใหม่ที่ Settings ⚙️\n\n` +
+        `⏱️ หรือรอประมาณ 1 นาที แล้วลองใหม่ (cooldown)\n` +
+        `📱 โควต้าฟรี Google: ~500 ภาพ/วัน\n`
+      : `💡 วิธีแก้:\n` +
+        `• เพิ่ม API Key ใหม่ในการตั้งค่า (⚙️)\n` +
+        `• ตรวจสอบโควต้าที่ https://ai.google.dev/gemini-api/docs/rate-limits\n` +
+        `• รอ 1 นาทีแล้วลองใหม่`)
   );
 }
 

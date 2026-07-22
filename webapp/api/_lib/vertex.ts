@@ -1,11 +1,13 @@
 /**
  * ╔══════════════════════════════════════════════════════════════════╗
  * ║  Vertex AI Client — Shared client for all API routes           ║
- * ║  Uses @google/genai SDK with Vertex AI mode                    ║
+ * ║  Uses @google-cloud/vertexai SDK (native Vertex AI)            ║
  * ║  Auth: GCP Service Account (base64-encoded in env var)         ║
  * ╚══════════════════════════════════════════════════════════════════╝
  */
-import { GoogleGenAI, Type } from '@google/genai';
+import { VertexAI } from '@google-cloud/vertexai';
+import type { GenerativeModel } from '@google-cloud/vertexai';
+import { GoogleAuth } from 'google-auth-library';
 
 // ═══════════════════════════════════════════════════════════════
 //  MODEL REGISTRY — Vertex AI model names
@@ -20,9 +22,13 @@ export const MODEL_REGISTRY = {
   ],
   /** Image generation models (Vertex AI) */
   image: [
-    'imagen-3.0-generate-002',       // Imagen 3 — highest quality
-    'imagen-3.0-fast-generate-001',  // Imagen 3 — fast
-    'gemini-2.0-flash-exp',          // Gemini native image gen (experimental)
+    'gemini-3.1-flash-image-preview', // Nano Banana 2
+    'gemini-3-pro-image-preview',     // Nano Banana Pro
+    'imagen-4.0-generate-001',
+    'imagen-4.0-fast-generate-001',
+    'gemini-2.5-flash-image',         // Nano Banana original
+    'imagen-3.0-generate-002',       // Imagen 3 — text-to-image fallback
+    'imagen-3.0-fast-generate-001',  // Imagen 3 — fast text-to-image fallback
   ],
 };
 
@@ -30,26 +36,53 @@ export const MODEL_REGISTRY = {
 //  Vertex AI Client Singleton
 // ═══════════════════════════════════════════════════════════════
 
-let _ai: GoogleGenAI | null = null;
+let _vertexAI: VertexAI | null = null;
+const _vertexAIByLocation = new Map<string, VertexAI>();
+let _geminiModel: GenerativeModel | null = null;
+let _credentials: ServiceAccountCredentials | null = null;
 
-/**
- * Returns a singleton GoogleGenAI instance configured for Vertex AI.
- *
- * Environment variables required:
- *   GCP_PROJECT_ID       — GCP project ID
- *   GCP_LOCATION         — region, e.g. "us-central1" (default)
- *   GCP_SERVICE_ACCOUNT  — base64-encoded service account JSON key
- */
-export function getVertexAI(): GoogleGenAI {
-  if (_ai) return _ai;
+type ServiceAccountCredentials = {
+  client_email?: string;
+  private_key?: string;
+  project_id?: string;
+};
 
-  const projectId = process.env.GCP_PROJECT_ID;
-  const location = process.env.GCP_LOCATION || 'us-central1';
-  const saBase64 = process.env.GCP_SERVICE_ACCOUNT;
+function parseServiceAccountCredentials(value: string): ServiceAccountCredentials {
+  const trimmed = value.trim();
+  const jsonText = trimmed.startsWith('{')
+    ? trimmed
+    : Buffer.from(trimmed, 'base64').toString('utf-8');
+
+  try {
+    const credentials = JSON.parse(jsonText) as ServiceAccountCredentials;
+    if (!credentials.client_email || !credentials.private_key) {
+      throw new Error('Service account JSON must include client_email and private_key');
+    }
+    return credentials;
+  } catch (error: any) {
+    throw new Error(`Invalid GCP_SERVICE_ACCOUNT. Expected base64-encoded service account JSON or raw JSON. ${error.message || ''}`.trim());
+  }
+}
+
+function getProjectId() {
+  return process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT;
+}
+
+export function getVertexEnvironment() {
+  const projectId = getProjectId();
+  const location = process.env.GCP_LOCATION || process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
 
   if (!projectId) {
-    throw new Error('Missing GCP_PROJECT_ID environment variable');
+    throw new Error('Missing GCP_PROJECT_ID environment variable. Set it in Vercel Project Settings.');
   }
+
+  return { projectId, location };
+}
+
+export function getServiceAccountCredentials() {
+  if (_credentials) return _credentials;
+
+  const saBase64 = process.env.GCP_SERVICE_ACCOUNT;
   if (!saBase64) {
     throw new Error(
       'Missing GCP_SERVICE_ACCOUNT environment variable.\n' +
@@ -59,22 +92,97 @@ export function getVertexAI(): GoogleGenAI {
     );
   }
 
-  // Decode service account credentials
-  const credentials = JSON.parse(
-    Buffer.from(saBase64, 'base64').toString('utf-8')
-  );
+  _credentials = parseServiceAccountCredentials(saBase64);
+  return _credentials;
+}
 
-  _ai = new GoogleGenAI({
-    vertexai: true,
+export async function getVertexAccessToken() {
+  const auth = new GoogleAuth({
+    credentials: getServiceAccountCredentials(),
+    scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+  });
+  const client = await auth.getClient();
+  const token = await client.getAccessToken();
+  if (!token.token) {
+    throw new Error('Unable to get Vertex AI access token from service account.');
+  }
+  return token.token;
+}
+
+export function getVertexConfigStatus() {
+  const projectId = process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT;
+  const location = process.env.GCP_LOCATION || process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
+  const serviceAccount = process.env.GCP_SERVICE_ACCOUNT;
+
+  return {
+    hasProjectId: Boolean(projectId),
+    hasServiceAccount: Boolean(serviceAccount),
+    location,
+    serviceAccountLooksJson: Boolean(serviceAccount?.trim().startsWith('{')),
+  };
+}
+
+/**
+ * Returns a singleton VertexAI instance configured for Vertex AI.
+ *
+ * Environment variables required:
+ *   GCP_PROJECT_ID       — GCP project ID
+ *   GCP_LOCATION         — region, e.g. "us-central1" (default)
+ *   GCP_SERVICE_ACCOUNT  — base64-encoded service account JSON key
+ */
+export function getVertexAI(): VertexAI {
+  if (_vertexAI) return _vertexAI;
+
+  const { projectId, location } = getVertexEnvironment();
+  const credentials = getServiceAccountCredentials();
+
+  _vertexAI = new VertexAI({
     project: projectId,
     location,
     googleAuthOptions: {
       credentials,
+      scopes: ['https://www.googleapis.com/auth/cloud-platform'],
     },
-  } as any);
+  });
 
   console.log(`[VertexAI] Initialized: project=${projectId}, location=${location}`);
-  return _ai;
+  return _vertexAI;
+}
+
+export function getVertexAIForLocation(locationOverride: string): VertexAI {
+  const { projectId } = getVertexEnvironment();
+  const credentials = getServiceAccountCredentials();
+  const location = locationOverride || getVertexEnvironment().location;
+  const cacheKey = `${projectId}:${location}`;
+
+  const cached = _vertexAIByLocation.get(cacheKey);
+  if (cached) return cached;
+
+  const vertexAI = new VertexAI({
+    project: projectId,
+    location,
+    googleAuthOptions: {
+      credentials,
+      scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+    },
+  });
+
+  _vertexAIByLocation.set(cacheKey, vertexAI);
+  console.log(`[VertexAI] Initialized: project=${projectId}, location=${location}`);
+  return vertexAI;
+}
+
+/**
+ * Returns a singleton GenerativeModel instance for text generation.
+ */
+export function getGenerativeModel(modelName: string = 'gemini-2.5-flash'): GenerativeModel {
+  const vertexAI = getVertexAI();
+  return vertexAI.getGenerativeModel({
+    model: modelName,
+    generationConfig: {
+      responseMimeType: 'application/json',
+    },
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -95,11 +203,11 @@ const isRetryable = (m: string) =>
  * Tries each model in order; retries on 503, skips on 404, throws on others.
  */
 export async function smartRetry<T>(
-  callFn: (model: string, ai: GoogleGenAI) => Promise<T>,
+  callFn: (model: string, ai: VertexAI) => Promise<T>,
   models: string[],
   maxRetries: number = 2,
 ): Promise<T> {
-  const ai = getVertexAI();
+  const vertexAI = getVertexAI();
   let lastError: any;
   const tried: string[] = [];
 
@@ -108,7 +216,7 @@ export async function smartRetry<T>(
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         console.log(`[SmartRetry] model="${model}" attempt=${attempt + 1}`);
-        const result = await callFn(model, ai);
+        const result = await callFn(model, vertexAI);
         console.log(`[SmartRetry] ✅ Success: model="${model}"`);
         return result;
       } catch (err: any) {
@@ -138,10 +246,7 @@ export async function smartRetry<T>(
   throw new Error(
     `Vertex AI: ลองแล้ว ${tried.length} ครั้ง ไม่สำเร็จ\n` +
     `Models: ${models.join(', ')}\n` +
-    `Error: ${detail}\n\n` +
-    `💡 ตรวจสอบ GCP quotas ที่ https://console.cloud.google.com/iam-admin/quotas`,
+    `Error: ${lastError?.message || detail}\n\n` +
+    `💡 ตรวจสอบ GCP project, Vertex AI access, region, quotas`,
   );
 }
-
-// Re-export Type for convenience
-export { Type };
