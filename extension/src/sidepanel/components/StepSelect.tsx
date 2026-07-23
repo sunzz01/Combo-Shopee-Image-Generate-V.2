@@ -1,17 +1,31 @@
 import { ArrowLeft, ImageIcon, CheckCircle2, Circle, Copy, Sparkles, Download, CheckSquare, Square, ListFilter } from 'lucide-react';
 import { useAppFlow } from '../hooks/useFlowStore';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { exportSelectedProductPackage } from '../../services/exportService';
 
 export function StepSelect() {
     const { state, dispatch, goToPrevStep } = useAppFlow();
     const { scannedImages, selectedImages } = state;
     const [isSendingPicSeller, setIsSendingPicSeller] = useState(false);
-    const [isSendingGemini, setIsSendingGemini] = useState(false);
+    const [geminiGemUrls, setGeminiGemUrls] = useState<string[]>(['https://gemini.google.com/app']);
+    const [sendingGeminiIndex, setSendingGeminiIndex] = useState<number | null>(null);
     const [isSendingGeminiChat, setIsSendingGeminiChat] = useState(false);
     const [isSendingChatGPT, setIsSendingChatGPT] = useState(false);
     const [isExportingPackage, setIsExportingPackage] = useState(false);
     const [sortBy, setSortBy] = useState<'size' | 'png' | 'jpg' | 'webp'>('size');
+
+    useEffect(() => {
+        chrome.storage.local.get(['gemini_gem_urls', 'gemini_gem_url'], (result: { gemini_gem_urls?: unknown; gemini_gem_url?: unknown }) => {
+            const urls = Array.isArray(result.gemini_gem_urls)
+                ? result.gemini_gem_urls.filter((url): url is string => typeof url === 'string' && url.trim().length > 0).slice(0, 5)
+                : [];
+            if (urls.length > 0) {
+                setGeminiGemUrls(urls);
+            } else if (typeof result.gemini_gem_url === 'string' && result.gemini_gem_url.trim()) {
+                setGeminiGemUrls([result.gemini_gem_url]);
+            }
+        });
+    }, []);
 
     const getFileType = (src: string) => {
         const path = src.split('?')[0].split('#')[0].toLowerCase();
@@ -167,8 +181,8 @@ ${imageLinks}
         }
     };
 
-    const sendToAiChat = async (destination: 'gemini' | 'gemini-chat' | 'chatgpt') => {
-        if (destination === 'gemini') setIsSendingGemini(true);
+    const sendToAiChat = async (destination: 'gemini' | 'gemini-chat' | 'chatgpt', geminiIndex = 0) => {
+        if (destination === 'gemini') setSendingGeminiIndex(geminiIndex);
         if (destination === 'gemini-chat') setIsSendingGeminiChat(true);
         if (destination === 'chatgpt') setIsSendingChatGPT(true);
 
@@ -179,6 +193,7 @@ ${imageLinks}
                 type: 'SEND_TO_AI_CHAT',
                 payload: {
                     destination,
+                    geminiIndex: destination === 'gemini' ? geminiIndex : undefined,
                     productUrl: state.sourceProductUrl || tab?.url || '',
                     productName: state.scrapedContent?.productName || tab?.title || '',
                     productDesc: state.scrapedContent?.productDescription || '',
@@ -191,7 +206,7 @@ ${imageLinks}
         } catch (error) {
             alert((error as Error).message);
         } finally {
-            if (destination === 'gemini') setIsSendingGemini(false);
+            if (destination === 'gemini') setSendingGeminiIndex(null);
             if (destination === 'gemini-chat') setIsSendingGeminiChat(false);
             if (destination === 'chatgpt') setIsSendingChatGPT(false);
         }
@@ -321,16 +336,20 @@ ${imageLinks}
                     {isSendingPicSeller ? 'กำลังส่งข้อมูล...' : 'ส่งข้อมูลไป PICSELLER'}
                 </button>
 
-                {/* Primary Buttons 2–4: GEM, Gemini Chat & ChatGPT */}
-                <div className="grid grid-cols-3 gap-2">
-                    <button
-                        disabled={selectedImages.length === 0 || isSendingGemini}
-                        onClick={() => sendToAiChat('gemini')}
-                        className="bg-blue-600 text-white font-bold py-2.5 px-3 rounded-xl hover:bg-blue-700 active:scale-98 transition-all text-xs flex items-center justify-center gap-1.5 disabled:opacity-50 shadow-sm"
-                    >
-                        <span>💎</span>
-                        <span>{isSendingGemini ? 'กำลังส่ง...' : 'ส่งไปที่ GEM'}</span>
-                    </button>
+                {/* Primary Buttons: up to five Custom Gems, Gemini Chat & ChatGPT */}
+                <div className="grid grid-cols-2 gap-2">
+                    {geminiGemUrls.slice(0, 5).map((url, index) => (
+                        <button
+                            key={`${index}-${url}`}
+                            disabled={selectedImages.length === 0 || sendingGeminiIndex !== null}
+                            onClick={() => sendToAiChat('gemini', index)}
+                            className="bg-blue-600 text-white font-bold py-2.5 px-2 rounded-xl hover:bg-blue-700 active:scale-98 transition-all text-xs flex items-center justify-center gap-1.5 disabled:opacity-50 shadow-sm"
+                            title={url}
+                        >
+                            <span>💎</span>
+                            <span>{sendingGeminiIndex === index ? 'กำลังส่ง...' : `ส่งไป GEM ${index + 1}`}</span>
+                        </button>
+                    ))}
                     <button
                         disabled={selectedImages.length === 0 || isSendingGeminiChat}
                         onClick={() => sendToAiChat('gemini-chat')}

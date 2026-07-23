@@ -19,6 +19,7 @@ type StorageKeys = {
     openai_api_key?: string;
     webapp_url?: string;
     gemini_gem_url?: string;
+    gemini_gem_urls?: string[];
     gemini_chat_url?: string;
     chatgpt_url?: string;
 };
@@ -139,18 +140,20 @@ async function prepareAiChatAttachments(imageUrls: string[]): Promise<AiChatAtta
 }
 
 async function sendToAiChat(payload: AiChatPayload): Promise<{ opened: boolean; attachedImages: number }> {
-    const key = payload.destination === 'gemini'
-        ? 'gemini_gem_url'
-        : payload.destination === 'gemini-chat'
-            ? 'gemini_chat_url'
-            : 'chatgpt_url';
     const fallbackUrl = payload.destination === 'chatgpt'
         ? 'https://chatgpt.com/'
         : 'https://gemini.google.com/app';
-    const stored = await getFromStorage([key]);
-    const targetUrl = (stored[key] || fallbackUrl).trim();
+    const stored = await getFromStorage(['gemini_gem_urls', 'gemini_gem_url', 'gemini_chat_url', 'chatgpt_url']);
+    const configuredGemUrls = Array.isArray(stored.gemini_gem_urls)
+        ? stored.gemini_gem_urls.filter((url): url is string => typeof url === 'string' && url.trim().length > 0).slice(0, 5)
+        : [];
+    const geminiIndex = Math.min(4, Math.max(0, Math.floor(payload.geminiIndex ?? 0)));
+    const configuredUrl = payload.destination === 'gemini'
+        ? (configuredGemUrls[geminiIndex] || stored.gemini_gem_url)
+        : payload.destination === 'gemini-chat' ? stored.gemini_chat_url : stored.chatgpt_url;
+    const targetUrl = (configuredUrl || fallbackUrl).trim();
     if (!targetUrl) {
-        throw new Error(`กรุณาใส่ URL ของ ${payload.destination === 'gemini' ? 'Google Gem' : payload.destination === 'gemini-chat' ? 'Gemini Chat' : 'ChatGPT'} ในหน้าตั้งค่าก่อนครับ`);
+        throw new Error(`กรุณาใส่ URL ของ ${payload.destination === 'gemini' ? `Google Gem ${geminiIndex + 1}` : payload.destination === 'gemini-chat' ? 'Gemini Chat' : 'ChatGPT'} ในหน้าตั้งค่าก่อนครับ`);
     }
     let parsedUrl: URL;
     try {

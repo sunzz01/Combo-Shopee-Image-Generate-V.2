@@ -79,6 +79,8 @@ export type MessageType =
         type: 'SEND_TO_AI_CHAT';
         payload: {
             destination: 'gemini' | 'gemini-chat' | 'chatgpt';
+            /** Zero-based Custom Gem slot. Ignored for Gemini Chat/ChatGPT. */
+            geminiIndex?: number;
             productUrl: string;
             productName: string;
             productDesc: string;
