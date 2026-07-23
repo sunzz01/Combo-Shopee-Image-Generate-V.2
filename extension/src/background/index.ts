@@ -54,6 +54,12 @@ const waitForTabComplete = (tabId: number, timeoutMs = 10000): Promise<void> => 
     }, timeoutMs);
 });
 
+const isAiAccessError = (error: unknown): boolean =>
+    /cannot access contents|manifest must request permission|permission/i.test(getErrorMessage(error));
+
+const getAiPermissionOrigin = (destination: AiChatPayload['destination']): string =>
+    destination === 'chatgpt' ? 'https://chatgpt.com/*' : 'https://gemini.google.com/*';
+
 const createAiHandoff = (payload: AiChatPayload): string => {
     const imageList = payload.images.length
         ? payload.images.map((url, index) => `${index + 1}. ${url}`).join('\n')
@@ -156,6 +162,18 @@ async function sendToAiChat(payload: AiChatPayload): Promise<{ opened: boolean; 
         throw new Error('รองรับเฉพาะ URL ที่ขึ้นต้นด้วย http:// หรือ https://');
     }
 
+    // Check the effective permission in the service worker as well. This catches
+    // an old unpacked build or a user-revoked site access before executeScript
+    // emits Chrome's opaque "Cannot access contents of the page" error.
+    const permissionOrigin = getAiPermissionOrigin(payload.destination);
+    const hasPermission = await chrome.permissions.contains({ origins: [permissionOrigin] });
+    if (!hasPermission) {
+        const destinationName = payload.destination === 'chatgpt'
+            ? 'ChatGPT'
+            : payload.destination === 'gemini-chat' ? 'Gemini Chat' : 'Google Gem';
+        throw new Error(`ยังไม่ได้รับสิทธิ์เข้าถึง ${destinationName} กรุณาเปิด chrome://extensions กด Reload ที่ Gimi Shopee X แล้วกดส่งอีกครั้ง`);
+    }
+
     const tabs = await chrome.tabs.query({});
     let targetTab = tabs.find(tab => tab.url?.startsWith(targetUrl));
     let opened = false;
@@ -169,8 +187,8 @@ async function sendToAiChat(payload: AiChatPayload): Promise<{ opened: boolean; 
 
     const handoff = createAiHandoff(payload);
     const attachments = await prepareAiChatAttachments(payload.images);
-    const injection = await chrome.scripting.executeScript({
-        target: { tabId: targetTab.id },
+    const injectIntoTab = (tabId: number) => chrome.scripting.executeScript({
+        target: { tabId },
         func: async (text: string, imageFiles: AiChatAttachment[]) => {
             const selectors = [
                 '#prompt-textarea',
@@ -216,6 +234,28 @@ async function sendToAiChat(payload: AiChatPayload): Promise<{ opened: boolean; 
         },
         args: [handoff, attachments]
     });
+    let injection;
+    try {
+        injection = await injectIntoTab(targetTab.id);
+    } catch (error) {
+        // A tab opened before the permission/build update can retain a stale
+        // restricted state. Retry once in a fresh Gemini/ChatGPT tab.
+        if (!isAiAccessError(error)) throw error;
+        const retryTab = await chrome.tabs.create({ url: targetUrl, active: true });
+        if (!retryTab.id) throw error;
+        opened = true;
+        await waitForTabComplete(retryTab.id);
+        await new Promise(resolve => setTimeout(resolve, 1200));
+        try {
+            injection = await injectIntoTab(retryTab.id);
+            targetTab = retryTab;
+        } catch {
+            const destinationName = payload.destination === 'chatgpt'
+                ? 'ChatGPT'
+                : payload.destination === 'gemini-chat' ? 'Gemini Chat' : 'Google Gem';
+            throw new Error(`Chrome ยังไม่อนุญาตให้ Extension อ่านหน้า ${destinationName} กรุณาเปิด chrome://extensions → Gimi Shopee X → รายละเอียด → Site access แล้วเลือก Allow on ${destinationName === 'ChatGPT' ? 'chatgpt.com' : 'gemini.google.com'} จากนั้น Reload Extension`);
+        }
+    }
     if (!injection[0]?.result?.inserted) {
         throw new Error('เปิดหน้า AI แล้ว แต่ยังไม่พบช่องพิมพ์ โปรดล็อกอินหรือคลิกช่องพิมพ์ก่อน แล้วลองส่งอีกครั้ง');
     }
