@@ -175,7 +175,23 @@ async function sendToAiChat(payload: AiChatPayload): Promise<{ opened: boolean; 
     }
 
     const tabs = await chrome.tabs.query({});
-    let targetTab = tabs.find(tab => tab.url?.startsWith(targetUrl));
+    const gemId = payload.destination !== 'chatgpt'
+        ? parsedUrl.pathname.match(/\/gem\/([^/]+)/)?.[1]
+        : undefined;
+    let targetTab = tabs.find(tab => {
+        if (!tab.url) return false;
+        if (tab.url.startsWith(targetUrl)) return true;
+        // Google may normalize a Custom Gem URL to /u/0/gem/<id> after login.
+        // Match the stable Gem id so we reuse the right tab instead of opening
+        // a second tab with a stale URL.
+        if (!gemId) return false;
+        try {
+            const tabUrl = new URL(tab.url);
+            return tabUrl.origin === parsedUrl.origin && tabUrl.pathname.includes(`/gem/${gemId}`);
+        } catch {
+            return false;
+        }
+    });
     let opened = false;
     if (!targetTab?.id) {
         targetTab = await chrome.tabs.create({ url: targetUrl, active: true });
