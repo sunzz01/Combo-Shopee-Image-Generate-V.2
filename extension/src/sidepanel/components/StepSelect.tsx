@@ -69,11 +69,14 @@ export function StepSelect() {
             ? product.variantGroups.map(g => `- ${g.name}: ${g.options.map(o => o.label).join(', ')}`).join('\n')
             : 'ไม่ระบุ';
 
-        const prompt = `# Marketplace Product Image Kit Generator — Shopee / Lazada
+        const prompt = `# Shopee Thai Product 3x3 / 9-in-1 Image Generator
 
-คุณคือ Product Listing Visual Director และ Prompt Engineer สำหรับร้านค้า Shopee และ Lazada ในประเทศไทย
+คุณคือผู้กำกับภาพสินค้า e-commerce สำหรับ Shopee Thailand เป้าหมายคือสร้างภาพจริงเพียง 1 ภาพ เป็นคอมโพสิต 3x3 แบบ 9-in-1 บนแคนวาส 1:1 ไม่ใช่ Prompt 9 ชุด ไม่ใช่ภาพ 9 ไฟล์แยกกัน และไม่ใช่ภาพปก 3 แบบ
 
-เป้าหมายคือสร้างภาพประกอบหน้าสินค้า 9 ภาพ สำหรับสินค้าชิ้นนี้:
+แบ่งภาพเดียวออกเป็น 9 ช่องเท่ากัน โดยใช้สินค้ารุ่นเดียวกันในทุกช่อง:
+1 Cover Hero, 2 Product Anatomy, 3 Specification and Scale, 4 Material Macro, 5 Feature in Action, 6 Problem and Solution, 7 Thai Lifestyle Use, 8 Package and Contents, 9 Alternate Product Hero
+
+ใช้โครงสร้าง Thai High-Information E-commerce Design แบบ GEM: สินค้าต้องเด่น มีฉากและรายละเอียดจริง มีหน้าที่ภาพต่างกันในแต่ละช่อง แต่ห้ามทำเป็นกรอบหนาหรือแผงข้อมูลด้านข้าง
 
 ## ข้อมูลสินค้า
 ชื่อสินค้า: ${product.name}
@@ -90,11 +93,15 @@ ${imageLinks}
 
 ---
 
-## กฎความตรงปก 1:1
-1. ใช้รูปอ้างอิงเป็นแหล่งความจริงสูงสุด สินค้าทุกภาพต้องเป็นสินค้าชิ้นเดียวกัน
-2. รักษารูปทรง สี วัสดุ สเกล และขนาดสัดส่วนให้ตรงกับรูปอ้างอิง
-3. สร้าง Prompt ละเอียดเรียงตาม IMAGE 1 ถึง IMAGE 9 (ภาพปก, สเปก, จุดเด่น, ตารางขนาด Size Chart, ตัวเลือกสินค้า, การใช้งานจริง, วิธีใช้, บริบทการใช้งาน, อุปกรณ์ในชุด)
-4. ท้ายทุก Prompt ให้ลงท้ายด้วย: square 1:1 marketplace listing image, product identity preserved, realistic scale, no watermark, no gibberish text.`;
+## กฎความตรงปกและการจัดวาง
+1. ใช้รูปอ้างอิงเป็นแหล่งความจริงสูงสุด และรักษาสินค้าชิ้นเดียวกันในทั้ง 9 ช่อง
+2. รักษารูปทรง สี วัสดุ โลโก้ ฉลาก จำนวน และสัดส่วนให้ตรงกับรูปอ้างอิง
+3. ใช้ขนาดที่ยืนยันแล้วเท่านั้น หากไม่มีขนาดให้เทียบกับมือคนหรือ iPhone และห้ามเดาตัวเลข
+4. ห้ามเพิ่มสินค้า อุปกรณ์ สี รุ่น ราคา โปรโมชัน หรือคุณสมบัติที่ไม่มีข้อมูล
+5. ห้ามมีกรอบหนา แผงด้านข้าง UI ปุ่มปลอม watermark หรือตัวอักษรสุ่ม/ภาษาต่างดาว
+6. ถ้าจำเป็นต้องมีข้อความ ให้ใช้เฉพาะภาษาไทยสั้น ๆ จากข้อมูลยืนยัน และต้องไม่บังสินค้า
+7. ใช้แสง โทนสี และสไตล์ร่วมกันทั้ง 9 ช่อง แต่ให้แต่ละช่องแตกต่างกันตามหน้าที่
+8. สร้างภาพจริง 1 ภาพทันทีจากรูปอ้างอิงทั้งหมด ไม่ตอบกลับเป็น Prompt หลายชุด`;
 
         await navigator.clipboard.writeText(prompt);
         alert('คัดลอก Prompt 3×3 Grid สำเร็จ!');
