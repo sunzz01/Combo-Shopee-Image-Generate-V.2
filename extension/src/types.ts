@@ -78,7 +78,7 @@ export type MessageType =
     | {
         type: 'SEND_TO_AI_CHAT';
         payload: {
-            destination: 'gemini' | 'chatgpt';
+            destination: 'gemini' | 'gemini-chat' | 'chatgpt';
             productUrl: string;
             productName: string;
             productDesc: string;

@@ -8,19 +8,22 @@ interface SettingsProps {
 type SettingsStorage = {
     webapp_url?: string;
     gemini_gem_url?: string;
+    gemini_chat_url?: string;
     chatgpt_url?: string;
 };
 
 export function Settings({ onClose }: SettingsProps) {
     const [webappUrl, setWebappUrl] = useState('https://sunzz01-webapp.vercel.app/');
     const [geminiGemUrl, setGeminiGemUrl] = useState('https://gemini.google.com/app');
+    const [geminiChatUrl, setGeminiChatUrl] = useState('https://gemini.google.com/app');
     const [chatGptUrl, setChatGptUrl] = useState('https://chatgpt.com/');
     const [isSaving, setIsSaving] = useState(false);
 
     useEffect(() => {
-        chrome.storage.local.get(['webapp_url', 'gemini_gem_url', 'chatgpt_url'], (result: SettingsStorage) => {
+        chrome.storage.local.get(['webapp_url', 'gemini_gem_url', 'gemini_chat_url', 'chatgpt_url'], (result: SettingsStorage) => {
             if (result.webapp_url) setWebappUrl(result.webapp_url);
             if (result.gemini_gem_url) setGeminiGemUrl(result.gemini_gem_url);
+            if (result.gemini_chat_url) setGeminiChatUrl(result.gemini_chat_url);
             if (result.chatgpt_url) setChatGptUrl(result.chatgpt_url);
         });
     }, []);
@@ -30,6 +33,7 @@ export function Settings({ onClose }: SettingsProps) {
         chrome.storage.local.set({
             webapp_url: webappUrl,
             gemini_gem_url: geminiGemUrl,
+            gemini_chat_url: geminiChatUrl,
             chatgpt_url: chatGptUrl
         }, () => {
             setTimeout(() => {
@@ -72,7 +76,7 @@ export function Settings({ onClose }: SettingsProps) {
                 {/* Gemini URL */}
                 <div className="space-y-1.5">
                     <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider px-1 flex items-center gap-1">
-                        <Globe className="w-3 h-3 text-blue-500" /> Google Gemini / Custom Gem URL
+                        <Globe className="w-3 h-3 text-blue-500" /> Google Gem URL (Custom Gem)
                     </label>
                     <input
                         type="url"
@@ -81,6 +85,21 @@ export function Settings({ onClose }: SettingsProps) {
                         placeholder="https://gemini.google.com/app"
                         className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3.5 text-xs font-mono text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
                     />
+                </div>
+
+                {/* Gemini Chat URL */}
+                <div className="space-y-1.5">
+                    <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider px-1 flex items-center gap-1">
+                        <Globe className="w-3 h-3 text-emerald-500" /> Gemini Chat URL
+                    </label>
+                    <input
+                        type="url"
+                        value={geminiChatUrl}
+                        onChange={(e) => setGeminiChatUrl(e.target.value)}
+                        placeholder="https://gemini.google.com/app"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 px-3.5 text-xs font-mono text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+                    />
+                    <p className="text-[10px] text-slate-400 px-1">แชต Gemini ปกติ แยกจาก Custom Gem</p>
                 </div>
 
                 {/* ChatGPT URL */}

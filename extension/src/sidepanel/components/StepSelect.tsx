@@ -8,6 +8,7 @@ export function StepSelect() {
     const { scannedImages, selectedImages } = state;
     const [isSendingPicSeller, setIsSendingPicSeller] = useState(false);
     const [isSendingGemini, setIsSendingGemini] = useState(false);
+    const [isSendingGeminiChat, setIsSendingGeminiChat] = useState(false);
     const [isSendingChatGPT, setIsSendingChatGPT] = useState(false);
     const [isExportingPackage, setIsExportingPackage] = useState(false);
     const [sortBy, setSortBy] = useState<'size' | 'png' | 'jpg' | 'webp'>('size');
@@ -129,12 +130,12 @@ ${imageLinks}
         }
     };
 
-    const ensureDestinationPermission = async (destination: 'gemini' | 'chatgpt') => {
+    const ensureDestinationPermission = async (destination: 'gemini' | 'gemini-chat' | 'chatgpt') => {
         const origin = destination === 'chatgpt' ? 'https://chatgpt.com/*' : 'https://gemini.google.com/*';
         const hasPermission = await chrome.permissions.contains({ origins: [origin] });
         if (hasPermission) return;
         const granted = await chrome.permissions.request({ origins: [origin] });
-        if (!granted) throw new Error(`กรุณาอนุญาตให้สิทธิ์เข้าถึง ${destination === 'chatgpt' ? 'ChatGPT' : 'Google Gemini'} แล้วลองอีกครั้ง`);
+        if (!granted) throw new Error(`กรุณาอนุญาตให้สิทธิ์เข้าถึง ${destination === 'chatgpt' ? 'ChatGPT' : destination === 'gemini-chat' ? 'Gemini Chat' : 'Google Gem'} แล้วลองอีกครั้ง`);
     };
 
     const sendToPicSeller = async () => {
@@ -166,8 +167,9 @@ ${imageLinks}
         }
     };
 
-    const sendToAiChat = async (destination: 'gemini' | 'chatgpt') => {
+    const sendToAiChat = async (destination: 'gemini' | 'gemini-chat' | 'chatgpt') => {
         if (destination === 'gemini') setIsSendingGemini(true);
+        if (destination === 'gemini-chat') setIsSendingGeminiChat(true);
         if (destination === 'chatgpt') setIsSendingChatGPT(true);
 
         try {
@@ -190,6 +192,7 @@ ${imageLinks}
             alert((error as Error).message);
         } finally {
             if (destination === 'gemini') setIsSendingGemini(false);
+            if (destination === 'gemini-chat') setIsSendingGeminiChat(false);
             if (destination === 'chatgpt') setIsSendingChatGPT(false);
         }
     };
@@ -318,8 +321,8 @@ ${imageLinks}
                     {isSendingPicSeller ? 'กำลังส่งข้อมูล...' : 'ส่งข้อมูลไป PICSELLER'}
                 </button>
 
-                {/* Primary Buttons 2 & 3: GEM & CHATGPT */}
-                <div className="grid grid-cols-2 gap-2">
+                {/* Primary Buttons 2–4: GEM, Gemini Chat & ChatGPT */}
+                <div className="grid grid-cols-3 gap-2">
                     <button
                         disabled={selectedImages.length === 0 || isSendingGemini}
                         onClick={() => sendToAiChat('gemini')}
@@ -327,6 +330,14 @@ ${imageLinks}
                     >
                         <span>💎</span>
                         <span>{isSendingGemini ? 'กำลังส่ง...' : 'ส่งไปที่ GEM'}</span>
+                    </button>
+                    <button
+                        disabled={selectedImages.length === 0 || isSendingGeminiChat}
+                        onClick={() => sendToAiChat('gemini-chat')}
+                        className="bg-emerald-600 text-white font-bold py-2.5 px-2 rounded-xl hover:bg-emerald-700 active:scale-98 transition-all text-[11px] flex items-center justify-center gap-1 disabled:opacity-50 shadow-sm"
+                    >
+                        <span>💬</span>
+                        <span>{isSendingGeminiChat ? 'กำลังส่ง...' : 'Gemini Chat'}</span>
                     </button>
                     <button
                         disabled={selectedImages.length === 0 || isSendingChatGPT}
