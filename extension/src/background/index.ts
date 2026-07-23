@@ -115,7 +115,36 @@ ${features}
 ลิงก์รูปอ้างอิง:
 ${imageList}
 
-ให้สร้างภาพ 3x3 9-in-1 นี้ทันทีจากรูปอ้างอิงทั้งหมด และอย่าส่งกลับมาเป็นเพียงคำอธิบายหรือ Prompt หลายชุด`;
+    ให้สร้างภาพ 3x3 9-in-1 นี้ทันทีจากรูปอ้างอิงทั้งหมด และอย่าส่งกลับมาเป็นเพียงคำอธิบายหรือ Prompt หลายชุด`;
+};
+
+/**
+ * Custom Gems already contain their own image-generation instructions. Keep
+ * this handoff deliberately data-only so the Gem does not receive a second
+ * system prompt and repeat the same analysis/generation workflow.
+ */
+const createGemHandoff = (payload: AiChatPayload): string => {
+    const price = payload.price?.display || (typeof payload.price?.current === 'number'
+        ? new Intl.NumberFormat('th-TH', { style: 'currency', currency: payload.price.currency || 'THB' }).format(payload.price.current)
+        : '(ไม่พบราคา)');
+    const variants = payload.variantGroups?.length
+        ? payload.variantGroups.map(group => `- ${group.name}: ${group.options.map(option => `${option.label}${option.price?.display ? ` (${option.price.display})` : ''}`).join(', ')}`).join('\n')
+        : '- (ไม่พบตัวเลือกสินค้า)';
+
+    return `ข้อมูลสินค้าที่ส่งจาก Extension
+
+ชื่อสินค้า: ${payload.productName || '(ไม่พบชื่อสินค้า)'}
+
+รายละเอียดสินค้า:
+${payload.productDesc || '(ไม่พบรายละเอียดสินค้า)'}
+
+ราคายืนยัน:
+${price}
+
+ตัวเลือกสินค้า:
+${variants}
+
+ภาพอ้างอิงสินค้าแนบมาพร้อมข้อความนี้แล้ว`;
 };
 
 async function prepareAiChatAttachments(imageUrls: string[]): Promise<AiChatAttachment[]> {
@@ -204,7 +233,9 @@ async function sendToAiChat(payload: AiChatPayload): Promise<{ opened: boolean; 
     }
     if (!targetTab?.id) throw new Error('ไม่สามารถเปิดแท็บปลายทางได้');
 
-    const handoff = createAiHandoff(payload);
+    const handoff = payload.destination === 'gemini'
+        ? createGemHandoff(payload)
+        : createAiHandoff(payload);
     const attachments = await prepareAiChatAttachments(payload.images);
     const injectIntoTab = (tabId: number) => chrome.scripting.executeScript({
         target: { tabId },
