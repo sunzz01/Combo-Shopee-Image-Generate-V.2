@@ -13,6 +13,7 @@ export default function App() {
   const { state } = useAppFlow();
   const { step } = state;
   const [showSettings, setShowSettings] = useState(false);
+  const extensionVersion = chrome.runtime.getManifest().version;
 
   // ฟังก์ชัน Refresh - ล้างข้อมูลและ reload
   const handleRefresh = () => {
@@ -55,7 +56,7 @@ export default function App() {
           <div>
             <h1 className="text-base font-black tracking-tight text-slate-800 flex items-center gap-1.5">
               Gimi Multi-X
-              <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-md font-bold">v2.0 PRO</span>
+              <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-md font-bold">v{extensionVersion}</span>
             </h1>
           </div>
         </div>

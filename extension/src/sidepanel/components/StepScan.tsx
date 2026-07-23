@@ -37,6 +37,9 @@ export function StepScan() {
                 return;
             }
 
+            // เก็บหน้าต้นทางทันที เพื่อไม่ให้ URL ของ Gemini/ChatGPT ที่เปิดภายหลังมาแทนที่
+            dispatch({ type: 'SET_SOURCE_PRODUCT_URL', payload: tab.url });
+
             chrome.tabs.sendMessage(tab.id, { type: 'SCAN_IMAGES' }, (response) => {
                 if (chrome.runtime.lastError) {
                     console.error('Runtime error:', chrome.runtime.lastError);

@@ -5,6 +5,7 @@ interface AppState {
     step: AppStep;
     scannedImages: ScannedImage[];
     scrapedContent?: ScrapedContent;
+    sourceProductUrl: string;
     selectedImages: string[];
     analysisResult: ProductAnalysis | null;
     generatedPrompts: GeneratedPrompt[];
@@ -25,6 +26,7 @@ type Action =
     | { type: 'SET_STEP'; payload: AppStep }
     | { type: 'SET_SCANNED_IMAGES'; payload: ScannedImage[] }
     | { type: 'SET_SCRAPED_CONTENT'; payload: ScrapedContent }
+    | { type: 'SET_SOURCE_PRODUCT_URL'; payload: string }
     | { type: 'TOGGLE_IMAGE_SELECTION'; payload: string }
     | { type: 'SET_ANALYSIS_RESULT'; payload: ProductAnalysis }
     | { type: 'SET_GENERATED_PROMPTS'; payload: GeneratedPrompt[] }
@@ -45,6 +47,7 @@ type Action =
 const initialState: AppState = {
     step: 'SCAN',
     scannedImages: [],
+    sourceProductUrl: '',
     selectedImages: [],
     analysisResult: null,
     generatedPrompts: [],
@@ -76,6 +79,8 @@ function appReducer(state: AppState, action: Action): AppState {
             return { ...state, scannedImages: action.payload };
         case 'SET_SCRAPED_CONTENT':
             return { ...state, scrapedContent: action.payload };
+        case 'SET_SOURCE_PRODUCT_URL':
+            return { ...state, sourceProductUrl: action.payload };
         case 'TOGGLE_IMAGE_SELECTION': {
             const isSelected = state.selectedImages.includes(action.payload);
             return {

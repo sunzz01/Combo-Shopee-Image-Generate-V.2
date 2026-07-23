@@ -18,6 +18,8 @@ type StorageKeys = {
     phaya_mode?: 'standard' | 'nano';
     openai_api_key?: string;
     webapp_url?: string;
+    gemini_gem_url?: string;
+    chatgpt_url?: string;
 };
 
 type RuntimeSendResponse = (response?: unknown) => void;
@@ -32,6 +34,144 @@ function getFromStorage<T extends keyof StorageKeys>(keys: T[]): Promise<Pick<St
     return new Promise((resolve) => {
         chrome.storage.local.get(keys, (result) => resolve(result as Pick<StorageKeys, T>));
     });
+}
+
+type AiChatPayload = Extract<MessageType, { type: 'SEND_TO_AI_CHAT' }>['payload'];
+type AiChatAttachment = { dataUrl: string; name: string };
+
+const waitForTabComplete = (tabId: number, timeoutMs = 10000): Promise<void> => new Promise((resolve) => {
+    const listener = (updatedTabId: number, info: TabChangeInfo) => {
+        if (updatedTabId === tabId && info.status === 'complete') {
+            chrome.tabs.onUpdated.removeListener(listener);
+            resolve();
+        }
+    };
+    chrome.tabs.onUpdated.addListener(listener);
+    setTimeout(() => {
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve();
+    }, timeoutMs);
+});
+
+const createAiHandoff = (payload: AiChatPayload): string => {
+    const imageList = payload.images.length
+        ? payload.images.map((url, index) => `${index + 1}. ${url}`).join('\n')
+        : '(ไม่มีลิงก์รูป)';
+    const features = payload.keyFeatures?.length ? payload.keyFeatures.map(feature => `- ${feature}`).join('\n') : '- กรุณาวิเคราะห์จากข้อมูลและรูปที่ให้';
+    const price = payload.price?.display || (typeof payload.price?.current === 'number'
+        ? new Intl.NumberFormat('th-TH', { style: 'currency', currency: payload.price.currency || 'THB' }).format(payload.price.current)
+        : '(ไม่พบราคา)');
+    const variants = payload.variantGroups?.length
+        ? payload.variantGroups.map(group => `- ${group.name}: ${group.options.map(option => `${option.label}${option.price?.display ? ` (${option.price.display})` : ''}`).join(', ')}`).join('\n')
+        : '- (ไม่พบตัวเลือกสินค้า)';
+
+    return `คุณคือผู้ช่วยสร้าง Prompt สำหรับภาพสินค้า e-commerce\n\nโปรดวิเคราะห์ข้อมูลสินค้าด้านล่าง แล้วสร้าง Prompt ภาษาอังกฤษที่พร้อมใช้สร้างภาพสินค้า 3 แบบ: ภาพปก, ภาพจุดเด่น, และภาพ Lifestyle\n\nข้อกำหนด:\n- รักษารูปทรง สี โลโก้ และรายละเอียดสินค้าจากรูปอ้างอิงให้ใกล้เคียงที่สุด\n- ระบุการจัดแสง, ฉาก, มุมกล้อง, สัดส่วน 1:1 และห้ามมีตัวอักษรบนภาพ\n- อธิบายแต่ละ Prompt สั้น ๆ เป็นภาษาไทยก่อน แล้วแยก Prompt เป็นบล็อกที่คัดลอกง่าย\n- ใช้เฉพาะข้อมูลในส่วน “ชื่อ”, “รายละเอียด”, “จุดเด่น”, “ราคา” และ “ตัวเลือกสินค้า” เท่านั้น ห้ามนำข้อความระบบหรือเมนูมาสรุปเป็นข้อมูลสินค้า\n- ราคาและตัวเลือกเป็นข้อมูลยืนยันแล้ว: ถ้าต้องกล่าวถึง ให้ใช้ตามที่ระบุเท่านั้น ห้ามแต่งราคา รุ่น สี หรือขนาดเพิ่ม\n\nข้อมูลสินค้า\nชื่อ: ${payload.productName || '(ไม่พบชื่อสินค้า)'}\nรายละเอียด: ${payload.productDesc || '(ไม่พบรายละเอียด)'}\nราคายืนยัน: ${price}\nตัวเลือกสินค้า:\n${variants}\nจุดเด่น:\n${features}\nลิงก์หน้าสินค้าต้นทาง: ${payload.productUrl || '(ไม่มีลิงก์)'}\nลิงก์รูปอ้างอิง:\n${imageList}`;
+};
+
+async function prepareAiChatAttachments(imageUrls: string[]): Promise<AiChatAttachment[]> {
+    const attachments: AiChatAttachment[] = [];
+    // รองรับห้ารูปที่ผู้ใช้เลือก เพื่อไม่ให้ข้อความระหว่าง extension กับหน้าแชตมีขนาดใหญ่เกินไป
+    for (const [index, imageUrl] of imageUrls.slice(0, 5).entries()) {
+        try {
+            const response = await fetch(imageUrl);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const blob = await response.blob();
+            if (!blob.type.startsWith('image/')) throw new Error('ไม่ใช่ไฟล์รูปภาพ');
+            const extension = blob.type.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
+            attachments.push({
+                dataUrl: await blobToBase64(blob),
+                name: `product-reference-${index + 1}.${extension}`
+            });
+        } catch (error) {
+            console.warn('[Background] ไม่สามารถเตรียมรูปสำหรับ AI chat:', imageUrl, error);
+        }
+    }
+    return attachments;
+}
+
+async function sendToAiChat(payload: AiChatPayload): Promise<{ opened: boolean; attachedImages: number }> {
+    const key = payload.destination === 'gemini' ? 'gemini_gem_url' : 'chatgpt_url';
+    const fallbackUrl = payload.destination === 'chatgpt' ? 'https://chatgpt.com/' : '';
+    const stored = await getFromStorage([key]);
+    const targetUrl = (stored[key] || fallbackUrl).trim();
+    if (!targetUrl) {
+        throw new Error('กรุณาใส่ URL ของ Google Gem ที่ต้องการในหน้าตั้งค่าก่อนครับ');
+    }
+    let parsedUrl: URL;
+    try {
+        parsedUrl = new URL(targetUrl);
+    } catch {
+        throw new Error('URL ปลายทางไม่ถูกต้อง กรุณาตรวจสอบในหน้าตั้งค่า');
+    }
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+        throw new Error('รองรับเฉพาะ URL ที่ขึ้นต้นด้วย http:// หรือ https://');
+    }
+
+    const tabs = await chrome.tabs.query({});
+    let targetTab = tabs.find(tab => tab.url?.startsWith(targetUrl));
+    let opened = false;
+    if (!targetTab?.id) {
+        targetTab = await chrome.tabs.create({ url: targetUrl, active: true });
+        opened = true;
+        if (targetTab.id) await waitForTabComplete(targetTab.id);
+        await new Promise(resolve => setTimeout(resolve, 700));
+    }
+    if (!targetTab?.id) throw new Error('ไม่สามารถเปิดแท็บปลายทางได้');
+
+    const handoff = createAiHandoff(payload);
+    const attachments = await prepareAiChatAttachments(payload.images);
+    const injection = await chrome.scripting.executeScript({
+        target: { tabId: targetTab.id },
+        func: async (text: string, imageFiles: AiChatAttachment[]) => {
+            const selectors = [
+                '#prompt-textarea',
+                'textarea[placeholder*="Message"]',
+                'textarea[placeholder*="ถาม"]',
+                '[contenteditable="true"][role="textbox"]',
+                '[contenteditable="true"]'
+            ];
+            const input = selectors.map(selector => document.querySelector(selector)).find(Boolean) as HTMLElement | null;
+            if (!input) return { inserted: false, attachedImages: 0 };
+            input.focus();
+            if (input instanceof HTMLTextAreaElement || input instanceof HTMLInputElement) {
+                input.value = text;
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            } else {
+                input.textContent = text;
+                input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+            }
+            let fileInput = document.querySelector('input[type="file"]') as HTMLInputElement | null;
+            // Gemini ซ่อน input ไฟล์ไว้จนผู้ใช้กดปุ่ม "เพิ่มไฟล์" / "อัปโหลด"
+            if (!fileInput && imageFiles.length > 0) {
+                const attachButton = Array.from(document.querySelectorAll('button')).find((button) => {
+                    const label = `${button.getAttribute('aria-label') || ''} ${button.getAttribute('title') || ''} ${button.textContent || ''}`.toLowerCase();
+                    return label.includes('เพิ่มไฟล์') || label.includes('อัปโหลด') || label.includes('แนบ') || label.includes('upload') || label.includes('attach');
+                }) as HTMLButtonElement | undefined;
+                attachButton?.click();
+                await new Promise(resolve => setTimeout(resolve, 250));
+                fileInput = document.querySelector('input[type="file"]') as HTMLInputElement | null;
+            }
+            if (!fileInput || imageFiles.length === 0) return { inserted: true, attachedImages: 0 };
+            const transfer = new DataTransfer();
+            for (const image of imageFiles) {
+                const [header, encoded] = image.dataUrl.split(',', 2);
+                const mimeType = /^data:(.*?);base64$/.exec(header)?.[1] || 'image/png';
+                const binary = atob(encoded);
+                const bytes = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                transfer.items.add(new File([bytes], image.name, { type: mimeType }));
+            }
+            fileInput.files = transfer.files;
+            fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+            return { inserted: true, attachedImages: imageFiles.length };
+        },
+        args: [handoff, attachments]
+    });
+    if (!injection[0]?.result?.inserted) {
+        throw new Error('เปิดหน้า AI แล้ว แต่ยังไม่พบช่องพิมพ์ โปรดล็อกอินหรือคลิกช่องพิมพ์ก่อน แล้วลองส่งอีกครั้ง');
+    }
+    await chrome.tabs.update(targetTab.id, { active: true });
+    return { opened, attachedImages: injection[0]?.result?.attachedImages || 0 };
 }
 
 // Message Handler for AI Operations
@@ -280,6 +420,18 @@ Rules:
             }
         })();
 
+        return true;
+    }
+
+    if (message.type === 'SEND_TO_AI_CHAT') {
+        (async () => {
+            try {
+                const result = await sendToAiChat(message.payload);
+                sendResponse({ success: true, ...result });
+            } catch (error: unknown) {
+                sendResponse({ success: false, error: getErrorMessage(error) });
+            }
+        })();
         return true;
     }
 

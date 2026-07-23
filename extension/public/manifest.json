@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "Gimi Shopee X",
-    "version": "1.0.0",
+    "version": "1.1.1",
     "description": "Shopee Seller Assistant with AI Power",
     "icons": {
         "16": "icon.png",
@@ -15,7 +15,8 @@
         "tabs",
         "scripting",
         "storage",
-        "identity"
+        "identity",
+        "clipboardWrite"
     ],
     "oauth2": {
         "client_id": "52909362582-bnddaq17icd3vdpn27b2fs7ndjem0pfv.apps.googleusercontent.com",
@@ -26,7 +27,15 @@
         ]
     },
     "host_permissions": [
-        "<all_urls>"
+        "<all_urls>",
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://gemini.google.com/*"
+    ],
+    "optional_host_permissions": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://gemini.google.com/*"
     ],
     "background": {
         "service_worker": "src/background/index.js",

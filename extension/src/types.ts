@@ -30,6 +30,30 @@ export interface ThirdPartyApiConfig {
 export interface ScrapedContent {
     productName: string;
     productDescription: string;
+    price?: ProductPrice;
+    variantGroups?: ProductVariantGroup[];
+}
+
+export interface ProductPrice {
+    currency: string;
+    current?: number;
+    min?: number;
+    max?: number;
+    original?: number;
+    display?: string;
+}
+
+export interface ProductVariantOption {
+    id: string;
+    label: string;
+    price?: ProductPrice;
+    stock?: number;
+}
+
+export interface ProductVariantGroup {
+    id: string;
+    name: string;
+    options: ProductVariantOption[];
 }
 
 export type MessageType =
@@ -47,6 +71,21 @@ export type MessageType =
             productName: string;
             productDesc: string;
             images: string[];
+            price?: ProductPrice;
+            variantGroups?: ProductVariantGroup[];
+        };
+    }
+    | {
+        type: 'SEND_TO_AI_CHAT';
+        payload: {
+            destination: 'gemini' | 'chatgpt';
+            productUrl: string;
+            productName: string;
+            productDesc: string;
+            images: string[];
+            keyFeatures?: string[];
+            price?: ProductPrice;
+            variantGroups?: ProductVariantGroup[];
         };
     }
     | {

@@ -88,3 +88,48 @@ Prompt: ${p.prompt}
     const zipBlob = await zip.generateAsync({ type: 'blob' });
     saveAs(zipBlob, `${folderName}_package.zip`);
 };
+
+/** ดาวน์โหลดรูปที่เลือกจริง พร้อมข้อมูลสินค้าแบบ Markdown ในไฟล์ ZIP */
+export const exportSelectedProductPackage = async (
+    productName: string,
+    productDescription: string,
+    productUrl: string,
+    imageUrls: string[]
+) => {
+    const safeName = (productName || 'product')
+        .replace(/[^a-z0-9ก-๙]/gi, '_')
+        .replace(/_+/g, '_')
+        .substring(0, 40);
+    const zip = new JSZip();
+    const imageFolder = zip.folder('images');
+    const markdownImages = imageUrls.map((url, index) => `![รูปสินค้า ${index + 1}](${url})`).join('\n\n');
+
+    zip.file('product-details.md', `# ${productName || 'สินค้า'}
+
+## รายละเอียดสินค้า
+
+${productDescription || 'ไม่มีรายละเอียดสินค้า'}
+
+## ลิงก์หน้าสินค้า
+
+${productUrl || 'ไม่มีลิงก์หน้าสินค้า'}
+
+## ลิงก์รูปอ้างอิง
+
+${markdownImages || 'ไม่มีรูปที่เลือก'}
+`);
+
+    await Promise.all(imageUrls.map(async (url, index) => {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const blob = await response.blob();
+            const extension = blob.type.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
+            imageFolder?.file(`product-image-${String(index + 1).padStart(2, '0')}.${extension}`, blob);
+        } catch (error) {
+            console.warn(`ไม่สามารถดาวน์โหลดรูปที่ ${index + 1}:`, error);
+        }
+    }));
+
+    saveAs(await zip.generateAsync({ type: 'blob' }), `${safeName || 'product'}_images_and_details.zip`);
+};
