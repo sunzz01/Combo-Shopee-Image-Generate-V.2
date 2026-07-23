@@ -1,6 +1,6 @@
-import { ArrowLeft, ImageIcon, CheckCircle2, Circle, Copy, Sparkles, Download, CheckSquare, Square } from 'lucide-react';
+import { ArrowLeft, ImageIcon, CheckCircle2, Circle, Copy, Sparkles, Download, CheckSquare, Square, ListFilter } from 'lucide-react';
 import { useAppFlow } from '../hooks/useFlowStore';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { exportSelectedProductPackage } from '../../services/exportService';
 
 export function StepSelect() {
@@ -10,6 +10,27 @@ export function StepSelect() {
     const [isSendingGemini, setIsSendingGemini] = useState(false);
     const [isSendingChatGPT, setIsSendingChatGPT] = useState(false);
     const [isExportingPackage, setIsExportingPackage] = useState(false);
+    const [sortBy, setSortBy] = useState<'size' | 'png' | 'jpg' | 'webp'>('size');
+
+    const getFileType = (src: string) => {
+        const path = src.split('?')[0].split('#')[0].toLowerCase();
+        if (path.endsWith('.png')) return 'png';
+        if (path.endsWith('.webp')) return 'webp';
+        if (path.endsWith('.jpg') || path.endsWith('.jpeg')) return 'jpg';
+        return 'other';
+    };
+
+    const sortedImages = useMemo(() => {
+        const images = [...scannedImages];
+        return images.sort((a, b) => {
+            const areaA = Math.max(0, a.width || 0) * Math.max(0, a.height || 0);
+            const areaB = Math.max(0, b.width || 0) * Math.max(0, b.height || 0);
+            if (sortBy === 'size') return areaB - areaA;
+            const rankA = getFileType(a.src) === sortBy ? 0 : 1;
+            const rankB = getFileType(b.src) === sortBy ? 0 : 1;
+            return rankA - rankB || areaB - areaA;
+        });
+    }, [scannedImages, sortBy]);
 
     const toggleImageSelection = (src: string) => {
         dispatch({ type: 'TOGGLE_IMAGE_SELECTION', payload: src });
@@ -193,6 +214,26 @@ ${imageLinks}
                 </div>
             </div>
 
+            {scannedImages.length > 1 && (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm">
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
+                        <ListFilter className="h-4 w-4 text-orange-500" />
+                        <span>เรียงรูปภาพ</span>
+                    </div>
+                    <select
+                        value={sortBy}
+                        onChange={(event) => setSortBy(event.target.value as typeof sortBy)}
+                        className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
+                        aria-label="เรียงลำดับรูปภาพ"
+                    >
+                        <option value="size">ขนาดใหญ่สุดก่อน (ค่าเริ่มต้น)</option>
+                        <option value="png">PNG ก่อน</option>
+                        <option value="jpg">JPG/JPEG ก่อน</option>
+                        <option value="webp">WEBP ก่อน</option>
+                    </select>
+                </div>
+            )}
+
             {/* Product Metadata Summary Badge */}
             {(product.name !== 'สินค้า' || product.price || product.variantGroups.length > 0) && (
                 <div className="rounded-xl border border-orange-200 bg-gradient-to-r from-orange-50 to-amber-50 p-3 text-xs shadow-sm space-y-1.5">
@@ -227,8 +268,9 @@ ${imageLinks}
                 </div>
             ) : (
                 <div className="grid grid-cols-2 gap-3">
-                    {scannedImages.map((img, index) => {
+                    {sortedImages.map((img, index) => {
                         const isSelected = selectedImages.includes(img.src);
+                        const fileType = getFileType(img.src).toUpperCase();
                         return (
                             <div
                                 key={index}
@@ -243,8 +285,8 @@ ${imageLinks}
                                         <Circle className="w-6 h-6 text-white drop-shadow-md" />
                                     )}
                                 </div>
-                                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-1.5 text-white text-[10px] opacity-0 group-hover:opacity-100 transition-opacity">
-                                    {img.width}x{img.height}
+                                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5 pt-4 text-white text-[10px] opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <span>{img.width || '?'}x{img.height || '?'}</span><span className="ml-2 font-black">{fileType}</span>
                                 </div>
                             </div>
                         );

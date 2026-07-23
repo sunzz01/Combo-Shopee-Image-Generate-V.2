@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "Gimi Shopee X",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "description": "Shopee Seller Assistant with AI Power",
     "icons": {
         "16": "icon.png",
