@@ -136,14 +136,28 @@ async function apiPost<T>(path: string, body: any): Promise<T> {
     throw new Error('กรุณาเข้าสู่ระบบก่อนใช้งาน AI');
   }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(body),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error('คำขอสร้างภาพใช้เวลานานเกินไป (Timeout 60 วินาที) กรุณากดสร้างใหม่อีกครั้ง');
+    }
+    throw err;
+  }
 
   const contentType = response.headers.get('content-type') || '';
   const rawBody = await response.text();
