@@ -10,6 +10,16 @@ type CampaignStyle = 'thai-premium' | 'clean-editorial' | 'vibrant-shopee' | 'wa
 type HeroCreativeMode = 'product-dominant' | 'short-hook' | 'price-ready' | 'human-product';
 type TextOverlayStyle = '3d-outlined' | 'top-banner' | 'modern-card';
 
+const THAI_FONTS: { id: string; label: string }[] = [
+  { id: 'Prompt', label: 'Prompt (นิยมที่สุด E-Commerce)' },
+  { id: 'Kanit', label: 'Kanit (ตัวหนา คอนทราสต์สูง)' },
+  { id: 'Krub', label: 'Krub (โมเดิร์น โค้งมน มินิมอล)' },
+  { id: 'Chakra Petch', label: 'Chakra Petch (สปอร์ต / ไอที)' },
+  { id: 'Sarabun', label: 'Sarabun (เรียบหรู น่าเชื่อถือ)' },
+  { id: 'Mitr', label: 'Mitr (มน นุ่มนวล เป็นธรรมชาติ)' },
+  { id: 'Noto Sans Thai', label: 'Noto Sans Thai (สากล อ่านง่าย)' },
+];
+
 const CAMPAIGN_STYLES: { id: CampaignStyle; label: string; description: string; direction: string }[] = [
   { id: 'thai-premium', label: 'Thai Premium', description: 'ส้ม–กรมท่า หรู สะอาด อ่านง่าย', direction: 'Thai premium ecommerce campaign. Use deep navy, warm Shopee orange accents, soft studio lighting, refined matte surfaces, confident but clean information hierarchy.' },
   { id: 'clean-editorial', label: 'Clean Editorial', description: 'ขาวสะอาด มินิมอล เน้นสินค้า', direction: 'Clean editorial product campaign. Use warm white backgrounds, restrained neutral palette, soft daylight, generous whitespace, premium catalogue composition.' },
@@ -51,6 +61,7 @@ export type ThaiAdsCard = ShopeeAdBrief & {
   visualStyle: CampaignStyle;
   heroCreativeMode?: HeroCreativeMode;
   textOverlayStyle?: TextOverlayStyle;
+  thaiFont?: string;
   badgeText?: string;
   imageUrl?: string;
   error?: string;
@@ -164,7 +175,8 @@ async function imageWithCopy(
   copy: string[],
   isCover = false,
   overlayStyle: TextOverlayStyle = '3d-outlined',
-  badgeText?: string
+  badgeText?: string,
+  fontFamily = 'Prompt'
 ) {
   const image = new Image();
   image.crossOrigin = 'anonymous';
@@ -186,28 +198,27 @@ async function imageWithCopy(
     const supportSize = Math.max(20, w * 0.034);
 
     if (overlayStyle === 'top-banner') {
-      // ⬛ Style 2: High-Contrast Top Banner Bar (Like Example 2)
+      // ⬛ Style 2: High-Contrast Top Banner Bar
       const bannerHeight = headlineSize * lines.length * 1.3 + pad * 1.5;
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.92)'; // Dark charcoal bar
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
       ctx.fillRect(0, 0, w, bannerHeight);
 
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = '#FFFFFF';
-      ctx.font = `800 ${headlineSize}px "Noto Sans Thai", "Prompt", Tahoma, sans-serif`;
+      ctx.font = `800 ${headlineSize}px "${fontFamily}", "Prompt", "Kanit", Tahoma, sans-serif`;
 
       lines.forEach((line, i) => {
         const y = pad * 1.2 + i * (headlineSize * 1.25) + headlineSize / 2;
         ctx.fillText(line, w / 2, y);
       });
     } else if (overlayStyle === '3d-outlined') {
-      // 🌟 Style 1: Bold 3D Outlined Typography with Shadows (Like Examples 1, 3, 4)
+      // 🌟 Style 1: Bold 3D Outlined Typography with Shadows
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
       const startX = pad * 1.2;
       let startY = pad * 1.2;
 
-      // Draw subtle top shadow gradient so text pops on any background
       const grad = ctx.createLinearGradient(0, 0, 0, h * 0.35);
       grad.addColorStop(0, 'rgba(0,0,0,0.65)');
       grad.addColorStop(1, 'rgba(0,0,0,0)');
@@ -216,7 +227,7 @@ async function imageWithCopy(
 
       lines.forEach((line, index) => {
         const fontSize = index === 0 ? headlineSize : supportSize;
-        ctx.font = `${index === 0 ? '900' : '700'} ${fontSize}px "Noto Sans Thai", "Prompt", Tahoma, sans-serif`;
+        ctx.font = `${index === 0 ? '900' : '700'} ${fontSize}px "${fontFamily}", "Prompt", "Kanit", Tahoma, sans-serif`;
 
         // Stroke Outline
         ctx.strokeStyle = '#180d04';
@@ -231,7 +242,7 @@ async function imageWithCopy(
 
         ctx.strokeText(line, startX, startY);
 
-        // Fill text (White with Gold highlight on numbers/keywords)
+        // Fill text
         ctx.shadowColor = 'transparent';
         ctx.fillStyle = index === 0 ? '#FFFFFF' : '#FFDD00';
         ctx.fillText(line, startX, startY);
@@ -253,22 +264,22 @@ async function imageWithCopy(
       ctx.fillStyle = '#FFFFFF';
       ctx.textBaseline = 'top';
       ctx.textAlign = 'left';
-      ctx.font = `800 ${headlineSize}px "Noto Sans Thai", "Prompt", Tahoma, sans-serif`;
+      ctx.font = `800 ${headlineSize}px "${fontFamily}", "Prompt", "Kanit", Tahoma, sans-serif`;
       ctx.fillText(lines[0], pad * 1.6, pad * 1.5);
 
       if (lines[1]) {
         ctx.fillStyle = 'rgba(255,255,255,0.88)';
-        ctx.font = `600 ${supportSize}px "Noto Sans Thai", "Prompt", Tahoma, sans-serif`;
+        ctx.font = `600 ${supportSize}px "${fontFamily}", "Prompt", "Kanit", Tahoma, sans-serif`;
         ctx.fillText(lines[1], pad * 1.6, pad * 1.5 + headlineSize * 1.2);
       }
     }
   }
 
-  // 🏷️ Optional High-Converting Pill Badge or Gold Seal (Like Examples 1, 2, 3, 4)
+  // 🏷️ Optional High-Converting Pill Badge
   const defaultBadge = badgeText || (isCover ? 'เกรดพรีเมียม' : undefined);
   if (defaultBadge) {
     const badgeFontSize = Math.max(16, w * 0.028);
-    ctx.font = `800 ${badgeFontSize}px "Noto Sans Thai", "Prompt", sans-serif`;
+    ctx.font = `800 ${badgeFontSize}px "${fontFamily}", "Prompt", "Kanit", sans-serif`;
     const textWidth = ctx.measureText(defaultBadge).width;
     const badgePaddingX = badgeFontSize * 0.9;
     const badgePaddingY = badgeFontSize * 0.45;
@@ -278,12 +289,10 @@ async function imageWithCopy(
     const badgeX = w - pad - badgeWidth;
     const badgeY = h - pad - badgeHeight;
 
-    // Glossy Red Pill Button Gradient
     const bGrad = ctx.createLinearGradient(badgeX, badgeY, badgeX, badgeY + badgeHeight);
     bGrad.addColorStop(0, '#DC2626');
     bGrad.addColorStop(1, '#991B1B');
 
-    // Draw Drop Shadow for Badge
     ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
     ctx.shadowBlur = 10;
     ctx.shadowOffsetY = 4;
@@ -293,13 +302,11 @@ async function imageWithCopy(
     ctx.roundRect(badgeX, badgeY, badgeWidth, badgeHeight, badgeHeight / 2);
     ctx.fill();
 
-    // Border highlight
     ctx.shadowColor = 'transparent';
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // Text
     ctx.fillStyle = '#FFFFFF';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -344,6 +351,7 @@ export function ShopeeAdsStudio({ dark, imageModel, session, setSession }: {
     status: 'ready' as AdStatus,
     visualStyle: campaignStyle,
     textOverlayStyle: '3d-outlined' as TextOverlayStyle,
+    thaiFont: 'Prompt',
     badgeText: base.id === 'hero' || base.id === 'hero-lifestyle' ? 'เกรดพรีเมียม' : undefined,
     facts: allFacts,
     thaiCopy: isHeroCard(base.id) ? buildCoverCopy(name, details, confirmedFacts) : [base.title, ...allFacts.slice(0, 3)],
@@ -369,7 +377,7 @@ export function ShopeeAdsStudio({ dark, imageModel, session, setSession }: {
         updateCard(card.id, { status: 'error', error: error instanceof Error ? error.message : 'สร้างภาพไม่สำเร็จ' });
       }
     }
-    setSession(prev => ({ ...prev, isGenerating: false, notice: 'สร้างภาพครบคิวแล้ว คุณปรับสไตล์ข้อความและป้าย Badge ได้รายภาพ' }));
+    setSession(prev => ({ ...prev, isGenerating: false, notice: 'สร้างภาพครบคิวแล้ว คุณเลือกฟอนต์ ปรับสไตล์ข้อความและป้าย Badge ได้รายภาพ' }));
   };
   const regenerate = async (card: ThaiAdsCard) => {
     if (!allImages.length) return;
@@ -383,7 +391,7 @@ export function ShopeeAdsStudio({ dark, imageModel, session, setSession }: {
   };
   const download = async (card: ThaiAdsCard) => {
     if (!card.imageUrl) return;
-    const blob = await imageWithCopy(card.imageUrl, card.thaiCopy, isHeroCard(card.id), card.textOverlayStyle || '3d-outlined', card.badgeText);
+    const blob = await imageWithCopy(card.imageUrl, card.thaiCopy, isHeroCard(card.id), card.textOverlayStyle || '3d-outlined', card.badgeText, card.thaiFont || 'Prompt');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `${cleanName(name)}-${card.id}.png`;
@@ -393,12 +401,12 @@ export function ShopeeAdsStudio({ dark, imageModel, session, setSession }: {
   const downloadZip = async () => {
     const complete = cards.filter(card => card.imageUrl);
     if (!complete.length) return;
-    setSession(prev => ({ ...prev, notice: 'กำลังเตรียม ZIP พร้อมข้อความและป้าย Badge…' }));
+    setSession(prev => ({ ...prev, notice: 'กำลังเตรียม ZIP พร้อมฟอนต์ ข้อความ และป้าย Badge…' }));
     const zip = new JSZip();
     for (const card of complete) {
       zip.file(
         `${cleanName(name)}-${card.id}.png`,
-        await imageWithCopy(card.imageUrl!, card.thaiCopy, isHeroCard(card.id), card.textOverlayStyle || '3d-outlined', card.badgeText)
+        await imageWithCopy(card.imageUrl!, card.thaiCopy, isHeroCard(card.id), card.textOverlayStyle || '3d-outlined', card.badgeText, card.thaiFont || 'Prompt')
       );
     }
     const blob = await zip.generateAsync({ type: 'blob' });
@@ -412,7 +420,7 @@ export function ShopeeAdsStudio({ dark, imageModel, session, setSession }: {
 
   return <section className="max-w-7xl mx-auto space-y-6">
     <div className="rounded-3xl bg-gradient-to-br from-orange-500 via-orange-600 to-rose-600 p-7 text-white shadow-xl">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between"><div><div className="flex items-center gap-2 text-orange-100 text-sm font-bold"><Sparkles size={16}/> AI CREATIVE STUDIO</div><h2 className="mt-2 text-3xl font-black">Shopee Thai Ads Generator</h2><p className="mt-2 max-w-2xl text-orange-50">สร้างชุดภาพโฆษณายิงแอดแบบพรีเซนเตอร์เด่น สินค้าชิ้นใหญ่ใน Foreground พร้อมป้ายราคาและข้อความไทยสะดุดตา</p></div><div className="rounded-2xl bg-white/15 px-4 py-3 text-sm"><ShieldCheck className="inline mr-2" size={18}/>Brand Ambassador · 3D Outlined Text · ZIP export</div></div>
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between"><div><div className="flex items-center gap-2 text-orange-100 text-sm font-bold"><Sparkles size={16}/> AI CREATIVE STUDIO</div><h2 className="mt-2 text-3xl font-black">Shopee Thai Ads Generator</h2><p className="mt-2 max-w-2xl text-orange-50">สร้างชุดภาพโฆษณายิงแอดแบบพรีเซนเตอร์เด่น สินค้าชิ้นใหญ่ เลือกฟอนต์ไทยได้หลากหลาย ปรับป้ายราคาและข้อความไทยสะดุดตา</p></div><div className="rounded-2xl bg-white/15 px-4 py-3 text-sm"><ShieldCheck className="inline mr-2" size={18}/>Brand Ambassador · Multi-Font Thai · ZIP export</div></div>
     </div>
 
     <div className="grid gap-6 lg:grid-cols-[1.1fr_.9fr]">
@@ -427,6 +435,6 @@ export function ShopeeAdsStudio({ dark, imageModel, session, setSession }: {
       <div className={`rounded-3xl border p-6 shadow-sm ${classCard}`}><h3 className="font-black text-xl">2. AI วางแผนชุดภาพ</h3><div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">โมเดลที่เลือกสำหรับคิวนี้: {modelLabel}</div><div className="mt-5"><p className="text-sm font-bold">จำนวนภาพ</p><div className="mt-2 flex flex-wrap gap-2">{[4, 6, 8, 10].map(value => <button key={value} onClick={() => setSession(prev => ({ ...prev, count: value }))} className={`rounded-xl px-4 py-2 text-sm font-bold ${count === value ? 'bg-orange-500 text-white' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-200'}`}>{value} ภาพ</button>)}</div></div><div className="mt-5"><label className="text-sm font-bold">โทนหลักของทั้งชุด<select value={campaignStyle} onChange={e => { const style = e.target.value as CampaignStyle; setSession(prev => ({ ...prev, campaignStyle: style, campaignDirection: styleMeta(style).direction })); }} className="mt-1 w-full rounded-xl border border-slate-300 bg-transparent px-3 py-2.5 text-sm outline-none focus:border-orange-500">{CAMPAIGN_STYLES.map(style => <option key={style.id} value={style.id} className="text-slate-900">{style.label} — {style.description}</option>)}</select></label><label className="mt-3 block text-sm font-bold">คำสั่งคุมโทนร่วมกัน<textarea value={campaignDirection} onChange={e => setSession(prev => ({ ...prev, campaignDirection: e.target.value }))} rows={4} className="mt-1 w-full rounded-xl border border-slate-300 bg-transparent px-3 py-2 text-xs outline-none focus:border-orange-500"/></label><p className="mt-2 text-xs text-slate-500">AI จะใส่คำสั่งนี้ในทุกภาพ เพื่อคุมสี แสง วัสดุพื้นหลัง และภาษาองค์ประกอบให้เป็นแคมเปญเดียวกัน</p></div><div className="mt-5 rounded-2xl border border-orange-200 bg-orange-50 p-4 dark:bg-orange-950/20"><label className="flex cursor-pointer items-center gap-3"><input type="checkbox" checked={heroWithPerson} onChange={e => setSession(prev => ({ ...prev, heroWithPerson: e.target.checked }))} className="h-4 w-4 accent-orange-500"/><span className="font-bold"><UserRound className="mr-1 inline" size={17}/>ภาพปกมีพรีเซนเตอร์ถือ/แสดงสินค้า (Brand Ambassador Shot)</span></label>{heroWithPerson && <input value={personBrief} onChange={e => setSession(prev => ({ ...prev, personBrief: e.target.value }))} placeholder="ระบุพรีเซนเตอร์ เช่น พรีเซนเตอร์หญิงไทย/เอเชีย ยิ้มแย้มถือสินค้าเสนอหน้ากล้อง" className="mt-3 w-full rounded-xl border border-orange-200 bg-white px-3 py-2 text-sm text-slate-800"/>}</div><div className="mt-6 space-y-2">{BLUEPRINTS.slice(0, count).map((item, index) => <div key={item.id} className="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2 dark:bg-slate-800"><span className="w-6 text-xs font-black text-orange-500">{String(index + 1).padStart(2, '0')}</span><span className="text-sm font-semibold">{item.title}</span>{item.includePerson && <UserRound className="ml-auto text-orange-500" size={16}/>}</div>)}</div><button disabled={isGenerating} onClick={generate} className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-orange-500 px-5 py-3.5 font-black text-white shadow-lg shadow-orange-500/25 disabled:opacity-50">{isGenerating ? <Loader2 className="animate-spin"/> : <Sparkles/>}{isGenerating ? 'กำลังสร้างภาพตามคิว…' : `วางแผนและสร้าง ${count} ภาพ`}</button>{notice && <p className="mt-3 text-center text-sm text-slate-500">{notice}</p>}</div>
     </div>
 
-    {cards.length > 0 && <div className={`rounded-3xl border p-6 shadow-sm ${classCard}`}><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-black text-xl">3. ผลลัพธ์และข้อความไทย</h3><p className="text-sm text-slate-500">ปรับเปลี่ยนสไตล์ข้อความไทย ป้าย Badge และสร้างใหม่ได้รายภาพ</p></div><button onClick={downloadZip} disabled={!cards.some(c => c.imageUrl)} className="flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40 dark:bg-white dark:text-slate-900"><Package size={17}/>ดาวน์โหลด ZIP</button></div><div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-3">{cards.map((card, index) => <article key={card.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800"><div className="aspect-square bg-slate-200 dark:bg-slate-700">{card.imageUrl ? <img src={card.imageUrl} className="h-full w-full object-cover"/> : <div className="flex h-full flex-col items-center justify-center gap-3 text-slate-500">{card.status === 'generating' ? <Loader2 className="animate-spin text-orange-500" size={30}/> : <ImagePlus size={30}/>}<span className="text-sm">{card.status === 'error' ? card.error : card.status === 'generating' ? 'กำลังสร้าง…' : 'รอคิว'}</span></div>}</div><div className="p-4"><div className="flex items-center justify-between"><span className="text-xs font-black text-orange-500">{String(index + 1).padStart(2, '0')}</span><span className="text-sm font-bold">{card.title}</span></div><p title={card.modelUsed || modelLabel} className="mt-2 truncate rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">{card.status === 'generating' ? `กำลังใช้: ${modelLabel}` : `ใช้จริง: ${card.modelUsed || 'รอสร้างภาพ'}`}</p><label className="mt-3 block text-xs font-bold">สไตล์ภาพนี้<select value={card.visualStyle} onChange={e => updateCard(card.id, { visualStyle: e.target.value as CampaignStyle })} className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs text-slate-800 outline-none focus:border-orange-500">{CAMPAIGN_STYLES.map(style => <option key={style.id} value={style.id}>{style.label}</option>)}</select></label>{isHeroCard(card.id) && <label className="mt-3 block text-xs font-bold text-orange-700">แนวภาพปก<select value={card.heroCreativeMode || 'human-product'} onChange={e => updateCard(card.id, { heroCreativeMode: e.target.value as HeroCreativeMode })} className="mt-1 w-full rounded-xl border border-orange-200 bg-orange-50 p-2 text-xs text-slate-800 outline-none focus:border-orange-500">{HERO_CREATIVE_MODES.map(mode => <option key={mode.id} value={mode.id}>{mode.label} — {mode.description}</option>)}</select></label>}<div className="mt-3 grid grid-cols-2 gap-2"><label className="block text-xs font-bold">รูปแบบอักษร<select value={card.textOverlayStyle || '3d-outlined'} onChange={e => updateCard(card.id, { textOverlayStyle: e.target.value as TextOverlayStyle })} className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs text-slate-800 outline-none focus:border-orange-500"><option value="3d-outlined">🌟 ตัวหนา 3D Outline</option><option value="top-banner">⬛ แถบแบนเนอร์ชิดบน</option><option value="modern-card">📦 การ์ดเรียบหรู</option></select></label><label className="block text-xs font-bold">ข้อความป้าย Badge<input value={card.badgeText || ''} onChange={e => updateCard(card.id, { badgeText: e.target.value })} placeholder="เช่น พลาสติกเกรด A" className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs text-slate-800 outline-none focus:border-orange-500"/></label></div><textarea value={card.thaiCopy.join('\n')} onChange={e => updateCard(card.id, { thaiCopy: e.target.value.split('\n').filter(Boolean) })} placeholder={isHeroCard(card.id) ? "บรรทัด 1: Hook หลัก · บรรทัด 2: ข้อความประกอบเล็ก" : "ข้อความไทยที่ต้องการวางบนภาพ"} rows={isHeroCard(card.id) ? 2 : 3} className="mt-3 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs text-slate-800 outline-none focus:border-orange-500"/><div className="mt-3 flex gap-2"><button onClick={() => regenerate(card)} disabled={card.status === 'generating'} className="flex flex-1 items-center justify-center gap-1 rounded-xl border border-orange-200 py-2 text-xs font-bold text-orange-600 disabled:opacity-40"><RefreshCw size={14}/>สร้างใหม่</button><button onClick={() => download(card)} disabled={!card.imageUrl} className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-orange-500 py-2 text-xs font-bold text-white disabled:opacity-40"><Download size={14}/>PNG</button></div></div></article>)}</div></div>}
+    {cards.length > 0 && <div className={`rounded-3xl border p-6 shadow-sm ${classCard}`}><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-black text-xl">3. ผลลัพธ์และข้อความไทย</h3><p className="text-sm text-slate-500">เลือกฟอนต์ไทย ปรับเปลี่ยนสไตล์ข้อความ ป้าย Badge และสร้างใหม่ได้รายภาพ</p></div><button onClick={downloadZip} disabled={!cards.some(c => c.imageUrl)} className="flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40 dark:bg-white dark:text-slate-900"><Package size={17}/>ดาวน์โหลด ZIP</button></div><div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-3">{cards.map((card, index) => <article key={card.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800"><div className="aspect-square bg-slate-200 dark:bg-slate-700">{card.imageUrl ? <img src={card.imageUrl} className="h-full w-full object-cover"/> : <div className="flex h-full flex-col items-center justify-center gap-3 text-slate-500">{card.status === 'generating' ? <Loader2 className="animate-spin text-orange-500" size={30}/> : <ImagePlus size={30}/>}<span className="text-sm">{card.status === 'error' ? card.error : card.status === 'generating' ? 'กำลังสร้าง…' : 'รอคิว'}</span></div>}</div><div className="p-4"><div className="flex items-center justify-between"><span className="text-xs font-black text-orange-500">{String(index + 1).padStart(2, '0')}</span><span className="text-sm font-bold">{card.title}</span></div><p title={card.modelUsed || modelLabel} className="mt-2 truncate rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">{card.status === 'generating' ? `กำลังใช้: ${modelLabel}` : `ใช้จริง: ${card.modelUsed || 'รอสร้างภาพ'}`}</p><label className="mt-3 block text-xs font-bold text-orange-700">🔤 ฟอนต์ข้อความไทย<select value={card.thaiFont || 'Prompt'} onChange={e => updateCard(card.id, { thaiFont: e.target.value })} className="mt-1 w-full rounded-xl border border-orange-200 bg-orange-50 p-2 text-xs font-bold text-slate-800 outline-none focus:border-orange-500">{THAI_FONTS.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}</select></label><div className="mt-3 grid grid-cols-2 gap-2"><label className="block text-xs font-bold">สไตล์ภาพ<select value={card.visualStyle} onChange={e => updateCard(card.id, { visualStyle: e.target.value as CampaignStyle })} className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs text-slate-800 outline-none focus:border-orange-500">{CAMPAIGN_STYLES.map(style => <option key={style.id} value={style.id}>{style.label}</option>)}</select></label><label className="block text-xs font-bold">รูปแบบเลย์เอาต์<select value={card.textOverlayStyle || '3d-outlined'} onChange={e => updateCard(card.id, { textOverlayStyle: e.target.value as TextOverlayStyle })} className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs text-slate-800 outline-none focus:border-orange-500"><option value="3d-outlined">🌟 ตัวหนา 3D Outline</option><option value="top-banner">⬛ แถบแบนเนอร์ชิดบน</option><option value="modern-card">📦 การ์ดเรียบหรู</option></select></label></div>{isHeroCard(card.id) && <label className="mt-3 block text-xs font-bold text-orange-700">แนวภาพปก<select value={card.heroCreativeMode || 'human-product'} onChange={e => updateCard(card.id, { heroCreativeMode: e.target.value as HeroCreativeMode })} className="mt-1 w-full rounded-xl border border-orange-200 bg-orange-50 p-2 text-xs text-slate-800 outline-none focus:border-orange-500">{HERO_CREATIVE_MODES.map(mode => <option key={mode.id} value={mode.id}>{mode.label} — {mode.description}</option>)}</select></label>}<label className="mt-3 block text-xs font-bold">ข้อความป้าย Badge<input value={card.badgeText || ''} onChange={e => updateCard(card.id, { badgeText: e.target.value })} placeholder="เช่น พลาสติกเกรด A" className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs text-slate-800 outline-none focus:border-orange-500"/></label><textarea value={card.thaiCopy.join('\n')} onChange={e => updateCard(card.id, { thaiCopy: e.target.value.split('\n').filter(Boolean) })} placeholder={isHeroCard(card.id) ? "บรรทัด 1: Hook หลัก · บรรทัด 2: ข้อความประกอบเล็ก" : "ข้อความไทยที่ต้องการวางบนภาพ"} rows={isHeroCard(card.id) ? 2 : 3} className="mt-3 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs text-slate-800 outline-none focus:border-orange-500"/><div className="mt-3 flex gap-2"><button onClick={() => regenerate(card)} disabled={card.status === 'generating'} className="flex flex-1 items-center justify-center gap-1 rounded-xl border border-orange-200 py-2 text-xs font-bold text-orange-600 disabled:opacity-40"><RefreshCw size={14}/>สร้างใหม่</button><button onClick={() => download(card)} disabled={!card.imageUrl} className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-orange-500 py-2 text-xs font-bold text-white disabled:opacity-40"><Download size={14}/>PNG</button></div></div></article>)}</div></div>}
   </section>;
 }
