@@ -9,6 +9,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { GoogleGenAI, Modality } from '@google/genai';
 import { getServiceAccountCredentials, getVertexAIForLocation, getVertexAccessToken, getVertexEnvironment } from './_lib/vertex.js';
 import { requireFirebaseUser } from './_lib/firebaseAdmin.js';
+import { resolveImageParts } from './_lib/storageImages.js';
 
 const RATIO_DESCRIPTIONS: Record<string, string> = {
   '1:1': 'square format (1:1 aspect ratio)',
@@ -38,7 +39,7 @@ function buildProductContext(productData: any, category?: string) {
   const name = String(productData.name || '').trim();
   const description = String(productData.description || '').trim();
   const features = Array.isArray(productData.features)
-    ? productData.features.filter(Boolean).map(String).slice(0, 8)
+    ? productData.features.filter(Boolean).map(String).slice(0, 24)
     : [];
   const price = productData.price?.display || (productData.price?.current ? `฿${Number(productData.price.current).toLocaleString('th-TH')}` : '');
   const variants = Array.isArray(productData.variantGroups)
@@ -194,7 +195,7 @@ STYLE: ${args.style || 'default'}
 
 ${args.adBrief ? `SHOPEE THAI ADS BRIEF (facts are the only permitted product claims):
 ${JSON.stringify(args.adBrief)}
-For this workflow, preserve the exact product and create clean intentional zones for the supplied Thai copy. Do not try to render Thai text in the generated pixels: the client will place it as an editable overlay. Never add prices, discounts, ratings, certifications, measurements, or accessories that are not explicitly confirmed.` : ''}
+For this workflow, preserve the exact product and create clean intentional zones for the supplied Thai copy. Render only the short Thai copy supplied in the brief when the model can render it clearly; do not invent extra copy, claims, prices, or promotions. If Thai text cannot be rendered reliably, omit it and leave the requested zone clean for editing. Never add prices, discounts, ratings, certifications, measurements, or accessories that are not explicitly confirmed. The generated image must not contain English marketing copy, Latin placeholders, or mixed-language labels. Use a marketplace-safe open composition: no border, rounded frame, thick outline, side rails, left/right information panels, top banner frame, card containers, or UI chrome around the image. For a specification/size card, you may design a Thai spec table and dimension callouts, but use confirmed measurements only. When a measurement is missing, use clearly marked editable placeholders such as "กรอกความยาว: ____ ซม." and "รอตรวจสอบ"—never invent plausible numeric values.` : ''}
 
 LEGACY CREATIVE DIRECTION:
 ${args.legacyPrompt}
@@ -422,6 +423,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const {
       prompt,
       images,
+      storagePaths,
       aspectRatio = '1:1',
       customPrompt,
       category,
@@ -435,7 +437,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'Provide prompt or customPrompt' });
     }
 
-    const imageParts = parseSourceImages(images);
+    const imageParts = await resolveImageParts(firebaseUser.uid, images, storagePaths);
     if (imageParts.length === 0) {
       return res.status(400).json({
         error: 'Product Recontext pipeline requires at least one source product image.',
@@ -445,6 +447,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const ratioDesc = RATIO_DESCRIPTIONS[aspectRatio] || RATIO_DESCRIPTIONS['1:1'];
     const productContext = buildProductContext(productData, category);
     const legacyPrompt = [productContext, prompt || customPrompt].filter(Boolean).join('\n\n');
+    // Defend the orchestrator against UI-only card state (especially data-URL
+    // imageUrl values) being accidentally included in a ThaiAds brief.
+    const safeAdBrief = adBrief && typeof adBrief === 'object' ? {
+      role: typeof adBrief.role === 'string' ? adBrief.role : undefined,
+      title: typeof adBrief.title === 'string' ? adBrief.title : undefined,
+      objective: typeof adBrief.objective === 'string' ? adBrief.objective : undefined,
+      facts: Array.isArray(adBrief.facts) ? adBrief.facts.filter(Boolean).map(String).slice(0, 24) : [],
+      thaiCopy: Array.isArray(adBrief.thaiCopy) ? adBrief.thaiCopy.filter(Boolean).map(String).slice(0, 8) : [],
+      includePerson: Boolean(adBrief.includePerson),
+      personBrief: typeof adBrief.personBrief === 'string' ? adBrief.personBrief : undefined,
+    } : undefined;
 
     const orchestrated = await orchestratePrompt({
       productContext,
@@ -453,9 +466,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       aspectRatio,
       category,
       style,
-      adBrief,
+      adBrief: safeAdBrief,
       imageParts,
     });
+
+    const fullGenerationPrompt = [
+      legacyPrompt,
+      orchestrated.prompt ? `RECONTEXT SCENE DIRECTION: ${orchestrated.prompt}` : '',
+    ].filter(Boolean).join('\n\n');
 
     const selectedModel = typeof model === 'string' ? model : 'gemini-3.1-flash-image';
     let generated;
@@ -463,7 +481,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       try {
         generated = await generateEnterpriseGeminiImage({
           modelName: selectedModel,
-          prompt: orchestrated.prompt,
+          prompt: fullGenerationPrompt,
           imageParts,
           aspectRatio,
         });
@@ -474,14 +492,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         console.warn(`[api/generate] ${getEnterpriseGeminiImageModel(selectedModel)} is unavailable; falling back to ${fallbackModel}.`, error);
         generated = await generateImagen4TextImage({
           modelName: fallbackModel,
-          prompt: orchestrated.prompt,
+          prompt: fullGenerationPrompt,
           aspectRatio,
         });
       }
     } else if (isImagenTextModel(selectedModel)) {
       generated = await generateImagen4TextImage({
         modelName: selectedModel,
-        prompt: orchestrated.prompt,
+        prompt: fullGenerationPrompt,
         aspectRatio,
       });
     } else {
@@ -489,7 +507,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // without access still receive a generated listing image rather than 500.
       try {
         generated = await generateProductRecontextImage({
-          prompt: orchestrated.prompt,
+          prompt: orchestrated.prompt || fullGenerationPrompt,
           imageParts,
           aspectRatio,
           negativePrompt: orchestrated.negativePrompt,
@@ -500,7 +518,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         console.warn(`[api/generate] Recontext is unavailable; falling back to ${fallbackModel}.`);
         generated = await generateImagen4TextImage({
           modelName: fallbackModel,
-          prompt: orchestrated.prompt,
+          prompt: fullGenerationPrompt,
           aspectRatio,
         });
       }

@@ -58,6 +58,9 @@ import { PricingCheckoutModal } from './src/components/PricingCheckoutModal';
 import { KineticBackground } from './src/components/KineticBackground';
 import type { PlanId } from './pricing';
 
+const APP_RELEASE = '1.0.0';
+const APP_BUILD = import.meta.env.VITE_APP_BUILD || 'local';
+
 type ResultsDensity = 'overview' | 'standard' | 'focus';
 type ScaleReferenceId = 'iphone-15' | 'iphone-15-pro' | 'hand' | 'custom';
 
@@ -174,6 +177,30 @@ const STYLES = [
     promptTemplate: 'Xianyu second-hand style: raw unedited photo, shows flaws, simple home background, authentic C2C.'
   },
 
+  {
+    id: 'brand-ambassador',
+    name: 'Brand Ambassador (สุ่ม)',
+    emoji: '✨',
+    color: 'text-rose-500',
+    desc: 'พรีเซนเตอร์ไทย + สินค้าเด่น + Hook ใหญ่',
+    promptTemplate: 'Thai marketplace brand ambassador cover: a warm credible Thai or Asian presenter naturally holding, using, or introducing the exact product. Product is large, sharp, and unobstructed in the foreground; one bold short Thai headline plus one smaller verified supporting line only. No long text, fake discounts, badges, frames, or side panels. Regenerate with a new pose, camera angle, composition, headline placement, and relevant props while preserving the same product identity and presenter-led campaign character.'
+  },
+  {
+    id: 'brand-ambassador-female',
+    name: 'Brand Ambassador ผู้หญิง',
+    emoji: '✨',
+    color: 'text-rose-500',
+    desc: 'พรีเซนเตอร์ผู้หญิง + สินค้าเด่น + Hook ใหญ่',
+    promptTemplate: 'Thai marketplace brand ambassador cover: exactly one warm credible adult Thai or Asian woman naturally holding, using, or introducing the exact product. Product is large, sharp, and unobstructed in the foreground; one bold short Thai headline plus one smaller verified supporting line only. No long text, fake discounts, badges, frames, or side panels. Regenerate with a new pose, camera angle, composition, headline placement, and relevant props while preserving the same product identity and female presenter-led campaign character.'
+  },
+  {
+    id: 'brand-ambassador-male',
+    name: 'Brand Ambassador ผู้ชาย',
+    emoji: '✨',
+    color: 'text-sky-500',
+    desc: 'พรีเซนเตอร์ผู้ชาย + สินค้าเด่น + Hook ใหญ่',
+    promptTemplate: 'Thai marketplace brand ambassador cover: exactly one warm credible adult Thai or Asian man naturally holding, using, or introducing the exact product. Product is large, sharp, and unobstructed in the foreground; one bold short Thai headline plus one smaller verified supporting line only. No long text, fake discounts, badges, frames, or side panels. Regenerate with a new pose, camera angle, composition, headline placement, and relevant props while preserving the same product identity and male presenter-led campaign character.'
+  },
   {
     id: 'lazada',
     name: 'Lazada Style',
@@ -427,6 +454,10 @@ const App: React.FC = () => {
   const [productPrice, setProductPrice] = useState<ProductPrice>({ currency: 'THB' });
   const [variantGroups, setVariantGroups] = useState<ProductVariantGroup[]>([]);
   const [selectedVariantOptionIds, setSelectedVariantOptionIds] = useState<string[]>([]);
+  // Commerce data is useful, but must be consciously opted into because
+  // incomplete marketplace data can make an image prompt less reliable.
+  const [usePriceInGeneration, setUsePriceInGeneration] = useState(false);
+  const [useVariantsInGeneration, setUseVariantsInGeneration] = useState(false);
   const [cardVisualStyles, setCardVisualStyles] = useState<Record<string, string>>({});
   const [summaryLength, setSummaryLength] = useState<'short' | 'medium' | 'long'>('medium');
   const [isSavingToFolder, setIsSavingToFolder] = useState(false);
@@ -435,6 +466,7 @@ const App: React.FC = () => {
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [isScrapingOnly, setIsScrapingOnly] = useState<boolean>(false);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const activeGenerationRef = useRef<AbortController | null>(null);
   const [scrapedImages, setScrapedImages] = useState<string[]>([]);
   const [originalScrapedImages, setOriginalScrapedImages] = useState<string[]>([]); // Backup for undo
   const [localImages, setLocalImages] = useState<string[]>([]);
@@ -606,6 +638,8 @@ const App: React.FC = () => {
        setProductPrice({ currency: 'THB' });
        setVariantGroups([]);
        setSelectedVariantOptionIds([]);
+       setUsePriceInGeneration(false);
+       setUseVariantsInGeneration(false);
 
       // ตั้งค่าข้อมูลใหม่
       if (productUrl) {
@@ -664,6 +698,8 @@ const App: React.FC = () => {
            if (savedState.productPrice) setProductPrice({ currency: 'THB', ...savedState.productPrice });
            if (Array.isArray(savedState.variantGroups)) setVariantGroups(savedState.variantGroups);
            if (Array.isArray(savedState.selectedVariantOptionIds)) setSelectedVariantOptionIds(savedState.selectedVariantOptionIds);
+           if (typeof savedState.usePriceInGeneration === 'boolean') setUsePriceInGeneration(savedState.usePriceInGeneration);
+           if (typeof savedState.useVariantsInGeneration === 'boolean') setUseVariantsInGeneration(savedState.useVariantsInGeneration);
            if (savedState.cardVisualStyles) setCardVisualStyles(savedState.cardVisualStyles);
            if (savedState.resultsDensity === 'overview' || savedState.resultsDensity === 'standard' || savedState.resultsDensity === 'focus') setResultsDensity(savedState.resultsDensity);
            if (savedState.manualScaleDraft && typeof savedState.manualScaleDraft === 'object') setManualScaleDraft(previous => ({ ...previous, ...savedState.manualScaleDraft }));
@@ -712,6 +748,8 @@ const App: React.FC = () => {
        productPrice,
        variantGroups,
        selectedVariantOptionIds,
+       usePriceInGeneration,
+       useVariantsInGeneration,
        cardVisualStyles,
        resultsDensity,
        manualScaleDraft,
@@ -734,6 +772,8 @@ const App: React.FC = () => {
     productPrice,
     variantGroups,
     selectedVariantOptionIds,
+    usePriceInGeneration,
+    useVariantsInGeneration,
     cardVisualStyles,
     resultsDensity,
     manualScaleDraft,
@@ -905,10 +945,13 @@ const App: React.FC = () => {
   };
 
   const buildCurrentProductData = (images: string[], variantLabel?: string): ProductData => {
-    const optionFacts = variantGroups.flatMap(group => group.options.slice(0, 12).map(option => `${group.name}: ${option.label}${option.price?.display ? ` (${option.price.display})` : ''}`));
+    const optionFacts = useVariantsInGeneration
+      ? variantGroups.flatMap(group => group.options.slice(0, 12).map(option => `${group.name}: ${option.label}${usePriceInGeneration && option.price?.display ? ` (${option.price.display})` : ''}`))
+      : [];
+    const confirmedPrice = usePriceInGeneration ? getPriceDisplay() : '';
     const description = [
       productDesc || 'ไม่มีรายละเอียด',
-      getPriceDisplay() ? `ราคาที่ยืนยันแล้ว: ${getPriceDisplay()}` : '',
+      confirmedPrice ? `ราคาที่ยืนยันแล้ว: ${confirmedPrice}` : '',
       variantLabel ? `ตัวเลือกที่ต้องสร้างภาพนี้: ${variantLabel}` : '',
     ].filter(Boolean).join('\n');
     return {
@@ -916,8 +959,8 @@ const App: React.FC = () => {
       description,
       images,
       features: [...productDesc.split('\n').map(line => line.replace(/^[-*•\s]+/, '').trim()).filter(line => line.length > 2).slice(0, 8), ...optionFacts].slice(0, 12),
-      price: productPrice,
-      variantGroups,
+      price: usePriceInGeneration ? productPrice : undefined,
+      variantGroups: useVariantsInGeneration ? variantGroups : [],
     };
   };
 
@@ -1195,22 +1238,32 @@ const App: React.FC = () => {
       return;
     }
 
-    const facts = productDesc
-      .split('\n')
-      .map(line => line.replace(/^[-*•\s]+/, '').trim())
+    // Analyze may contain Markdown, literal escaped newlines, or <br> tags
+    // from the extension. Normalize all of them before extracting facts so
+    // headings/blank lines do not consume the feature limit.
+    const normalizedDescription = productDesc
+      .replace(/\\n/g, '\n')
+      .replace(/<br\s*\/?\s*>/gi, '\n');
+    const facts = normalizedDescription
+      .split(/\r?\n/)
+      .map(line => line.replace(/^[>*•\-\s]+/, '').replace(/\*\*/g, '').trim())
       .filter(line => line.length > 2)
-      .slice(0, 8);
-    const priceFact = getPriceDisplay() ? `ราคาที่ผู้ขายยืนยัน: ${getPriceDisplay()}` : '';
-    const variantFacts = variantGroups.flatMap(group => group.options.slice(0, 12).map(option => `${group.name}: ${option.label}${option.price?.display ? ` ${option.price.display}` : ''}`));
+      .filter(line => !/^(จุดเด่นสินค้า|รายละเอียด|วิธีใช้งาน|คำขาย|hook)\s*:?$/i.test(line))
+      .slice(0, 24);
     setThaiAdsSession({
       ...createThaiAdsSession(),
       assets: { product: images, package: [], logo: [] },
       name: productName || 'สินค้าใหม่',
-      details: productDesc,
-      factsText: [priceFact, ...facts, ...variantFacts].filter(Boolean).join('\n'),
+      details: normalizedDescription,
+      // Keep scraped commerce data in dedicated fields. ThaiAds exposes it
+      // through opt-in toggles so incomplete variants/prices cannot destabilise
+      // the default generation prompt.
+      factsText: facts.join('\n'),
       price: productPrice,
       variantGroups,
-      notice: `รับข้อมูลสินค้า ราคา และตัวเลือกจากหน้า Analyze แล้ว (${images.length} รูป)`,
+      usePrice: usePriceInGeneration,
+      useVariants: useVariantsInGeneration,
+      notice: `รับข้อมูลสินค้าจาก Analyze แล้ว — ราคาและตัวเลือกปิดไว้เป็นค่าเริ่มต้น (${images.length} รูป)`,
     });
     setStudioMode(true);
     addNotification('success', 'ส่งไป Thai Ads แล้ว', `พร้อมสร้างภาพจากรูปอ้างอิง ${images.length} รูป`);
@@ -1219,6 +1272,15 @@ const App: React.FC = () => {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
+
+    const totalReferenceImages = localImages.length + scrapedImages.length + files.length;
+    if (totalReferenceImages > 4) {
+      addNotification(
+        'info',
+        'AI จะวิเคราะห์รูปอ้างอิง 4 รูปแรก',
+        'อัปโหลดรูปเพิ่มได้ แต่การวิเคราะห์ใช้สูงสุด 4 รูป; การสร้างภาพและสรุปใช้สูงสุด 3 รูป',
+      );
+    }
 
     (Array.from(files) as File[]).forEach(file => {
       const reader = new FileReader();
@@ -1329,6 +1391,21 @@ const App: React.FC = () => {
     }
   };
 
+  const stopResultsGeneration = () => {
+    const controller = activeGenerationRef.current;
+    if (!controller || !isGenerating) return;
+    const confirmed = window.confirm('หยุดการสร้างภาพตอนนี้หรือไม่?\n\nคำขอถูกส่งให้ AI แล้ว เครดิตอาจถูกใช้ไปแล้วและไม่สามารถคืนอัตโนมัติได้ คุณยืนยันที่จะหยุดใช่หรือไม่?');
+    if (!confirmed) return;
+
+    controller.abort();
+    activeGenerationRef.current = null;
+    setIsGenerating(false);
+    setGeneratedImages(previous => previous.map(image => image.status === 'generating'
+      ? { ...image, status: 'idle', url: '', error: undefined }
+      : image));
+    addNotification('warning', 'หยุดการสร้างแล้ว', 'เครดิตของคำขอที่ส่งถึง AI ไปแล้วอาจถูกใช้ไปแล้ว คุณสามารถกดสร้างใหม่ได้ทันที');
+  };
+
   const startGeneration = async () => {
     if (selectedCategories.size === 0) {
       addNotification('warning', 'เลือกหมวดหมู่ก่อน', 'กรุณาเลือกอย่างน้อย 1 หมวดหมู่ที่ต้องการสร้างภาพ');
@@ -1355,6 +1432,8 @@ const App: React.FC = () => {
       }
     }
 
+    const generationController = new AbortController();
+    activeGenerationRef.current = generationController;
     setIsGenerating(true);
     const initialGenerated: GeneratedImage[] = categoriesToGenerate.map(cat => ({
       id: Math.random().toString(36).substr(2, 9),
@@ -1378,17 +1457,20 @@ const App: React.FC = () => {
       addNotification('error', 'อ่านรูปสินค้าไม่ได้', 'ระบบไม่สามารถแปลงรูปสินค้าเป็นไฟล์สำหรับส่งให้ AI ได้ กรุณาอัปโหลดรูปใหม่หรือใช้รูปที่มีขนาดเล็กลง');
       setGeneratedImages([]);
       setThaiAdsSession(createThaiAdsSession());
+      if (activeGenerationRef.current === generationController) activeGenerationRef.current = null;
       setIsGenerating(false);
       setStep(2);
       return;
     }
 
+    if (generationController.signal.aborted) return;
     const productData = buildCurrentProductData(validImages);
 
     addNotification('info', 'เริ่มระบบสร้างภาพ AI', `กำลังติดต่อโมเดล ${selectedImageModel} เพื่อสร้างภาพตามหมวดหมู่...`);
 
     let successCount = 0;
     for (const cat of categoriesToGenerate) {
+      if (generationController.signal.aborted) break;
       setGeneratedImages(prev => prev.map(p => p.category === cat && !p.variantLabel ? { ...p, status: 'generating' } : p));
       try {
         const customPromptForTutorial = cat === ImageCategory.TUTORIAL
@@ -1407,10 +1489,11 @@ const App: React.FC = () => {
           styleIdx = parseInt(val) || undefined;
         }
         const styleForCard = cardVisualStyles[cat] || (cat === ImageCategory.COVER ? selectedCoverStyle || selectedStyle : selectedStyle);
-        const result = await generateProductImage(cat, productData, styleForCard, customPromptForTutorial, selectedImageModel, imageAspectRatios[cat] || selectedAspectRatio, styleIdx);
+        const result = await generateProductImage(cat, productData, styleForCard, customPromptForTutorial, selectedImageModel, imageAspectRatios[cat] || selectedAspectRatio, styleIdx, generationController.signal);
         setGeneratedImages(prev => prev.map(p => p.category === cat && !p.variantLabel ? { ...p, url: result.imageUrl, status: 'completed', thaiTexts: result.thaiTexts, promptUsed: result.promptUsed, modelUsed: result.modelUsed, visualStyle: styleForCard } : p));
         successCount++;
       } catch (err) {
+        if (generationController.signal.aborted) break;
         setGeneratedImages(prev => prev.map(p => p.category === cat && !p.variantLabel ? { ...p, status: 'error', error: err instanceof Error ? err.message : 'Unknown error' } : p));
         const errMsg = err instanceof Error ? err.message : '';
         const isQuota = errMsg.includes('429') || errMsg.includes('quota') || errMsg.includes('QUOTA') || errMsg.includes('RESOURCE_EXHAUSTED');
@@ -1421,17 +1504,25 @@ const App: React.FC = () => {
       }
     }
 
+    if (generationController.signal.aborted) {
+      return;
+    }
+
     if (user && successCount > 0) {
       deductCredit(successCount);
       addNotification('success', 'สร้างภาพเสร็จสิ้น', user.unlimitedCredits ? `บัญชีทดลอง Unlimited สร้างสำเร็จ ${successCount} ภาพ โดยไม่ถูกหักเครดิต` : `ระบบหัก ${successCount} เครดิตสำหรับการสร้างภาพสำเร็จ ${successCount} ภาพ`);
     } else if (successCount > 0) {
       addNotification('success', 'สร้างภาพเสร็จสิ้น', `สร้างภาพเสร็จเรียบร้อยทั้งหมด ${successCount} ภาพ`);
     }
+    if (activeGenerationRef.current === generationController) activeGenerationRef.current = null;
     setIsGenerating(false);
   };
 
   // ฟังก์ชัน Regenerate สำหรับภาพเดี่ยว
   const regenerateImage = async (category: ImageCategory, customPrompt?: string, styleOverride?: string, styleIndex?: number) => {
+    const generationController = new AbortController();
+    activeGenerationRef.current = generationController;
+    setIsGenerating(true);
     // อัปเดตจำนวนครั้งที่พยายามสร้างใหม่
     setRegenerationAttempts(prev => ({
       ...prev,
@@ -1475,7 +1566,10 @@ const App: React.FC = () => {
       const attemptCount = regenerationAttempts[category] || 1;
       const styleToUse = styleOverride || cardVisualStyles[category] || (category === ImageCategory.COVER ? selectedCoverStyle || selectedStyle : selectedStyle);
       const ratio = imageAspectRatios[category] || selectedAspectRatio;
-      const result = await generateProductImage(category, productData, styleToUse, customPrompt, selectedImageModel, ratio, styleIndex);
+      const coverVariationIndex = category === ImageCategory.COVER && styleToUse.startsWith('brand-ambassador')
+        ? attemptCount
+        : styleIndex;
+      const result = await generateProductImage(category, productData, styleToUse, customPrompt, selectedImageModel, ratio, coverVariationIndex, generationController.signal);
 
       // อัปเดตเฉพาะภาพที่เลือก
       setGeneratedImages(prev => prev.map(img =>
@@ -1490,6 +1584,7 @@ const App: React.FC = () => {
         } : img
       ));
     } catch (err) {
+      if (generationController.signal.aborted) return;
       // ถ้ามีข้อผิดพลาด ให้ตั้งสถานะเป็น error และบันทึกข้อความแสดงข้อผิดพลาด
       const errorMessage = err instanceof Error ? err.message : "เกิดข้อผิดพลาดในการสร้างภาพ";
 
@@ -1500,6 +1595,9 @@ const App: React.FC = () => {
           error: errorMessage
         } : img
       ));
+    } finally {
+      if (activeGenerationRef.current === generationController) activeGenerationRef.current = null;
+      setIsGenerating(false);
     }
   };
 
@@ -1519,9 +1617,12 @@ const App: React.FC = () => {
       return;
     }
 
+    const generationController = new AbortController();
+    activeGenerationRef.current = generationController;
     setIsGenerating(true);
     setStep(3);
     for (const target of targets) {
+      if (generationController.signal.aborted) break;
       const id = `variant-${target.option.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
       setGeneratedImages(previous => [...previous, { id, category: ImageCategory.COVER, url: '', prompt: '', status: 'generating', variantLabel: target.label, visualStyle: cardVisualStyles.COVER || selectedStyle }]);
       try {
@@ -1529,15 +1630,19 @@ const App: React.FC = () => {
           ImageCategory.COVER,
           buildCurrentProductData(images, target.label),
           cardVisualStyles.COVER || selectedStyle,
-          `Create a dedicated, exact-variant product cover for "${target.label}". Clearly distinguish only this confirmed purchasable option from other variants. Leave a clean editable Thai overlay zone for the exact variant name and confirmed price.`,
+          `Create a dedicated, exact-variant product cover for "${target.label}". Clearly distinguish only this confirmed purchasable option from other variants. Leave a clean editable Thai overlay zone for the exact variant name${usePriceInGeneration ? ' and confirmed price' : ''}.`,
           selectedImageModel,
           selectedAspectRatio,
+          undefined,
+          generationController.signal,
         );
         setGeneratedImages(previous => previous.map(image => image.id === id ? { ...image, url: result.imageUrl, status: 'completed', thaiTexts: [`${target.label}`, ...result.thaiTexts], promptUsed: result.promptUsed, modelUsed: result.modelUsed } : image));
       } catch (error) {
+        if (generationController.signal.aborted) break;
         setGeneratedImages(previous => previous.map(image => image.id === id ? { ...image, status: 'error', error: error instanceof Error ? error.message : 'สร้างภาพตัวเลือกไม่สำเร็จ' } : image));
       }
     }
+    if (activeGenerationRef.current === generationController) activeGenerationRef.current = null;
     setIsGenerating(false);
   };
 
@@ -2013,6 +2118,9 @@ const App: React.FC = () => {
           <div className="cursor-pointer group" onClick={() => setShowPublicLanding(true)}>
             <div className="flex items-center gap-2">
               <h1 className="font-black text-xl tracking-tight group-hover:text-orange-500 transition-colors uppercase">PICSELLER</h1>
+              <span className="rounded-full border border-slate-400/30 px-1.5 py-0.5 text-[9px] font-black tracking-wide text-slate-400" title={`Build ${APP_BUILD}`}>
+                v{APP_RELEASE} · {APP_BUILD}
+              </span>
               <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${theme === 'dark' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-600 border border-emerald-200'} tracking-wider`} title="Last updated: 2026-03-11 — Security Hardening">
                 PLUS
               </span>
@@ -2236,6 +2344,17 @@ const App: React.FC = () => {
                     <div><h3 className={`font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>ราคาและตัวเลือกสินค้า</h3><p className={`mt-1 text-xs ${theme === 'dark' ? 'text-emerald-200/70' : 'text-emerald-800/70'}`}>ตรวจ แก้ไข และเลือกตัวเลือกที่จะสร้างภาพแยกก่อนเริ่ม Generate</p></div>
                     <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-emerald-700 shadow-sm">{getPriceDisplay() || 'ยังไม่ได้ระบุราคา'}</span>
                   </div>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <label className={`flex cursor-pointer items-center justify-between gap-3 rounded-2xl border p-3 transition-colors ${usePriceInGeneration ? 'border-orange-300 bg-orange-50' : 'border-slate-200 bg-white/70'}`}>
+                      <span><span className="block text-xs font-black text-slate-800">ใช้ราคายืนยันในการสร้างภาพ</span><span className="mt-0.5 block text-[11px] text-slate-500">ปิดอยู่: AI จะไม่เห็นข้อมูลราคา</span></span>
+                      <input type="checkbox" checked={usePriceInGeneration} onChange={event => setUsePriceInGeneration(event.target.checked)} className="h-5 w-5 shrink-0 accent-orange-500" aria-label="ใช้ราคายืนยันในการสร้างภาพ" />
+                    </label>
+                    <label className={`flex cursor-pointer items-center justify-between gap-3 rounded-2xl border p-3 transition-colors ${useVariantsInGeneration ? 'border-orange-300 bg-orange-50' : 'border-slate-200 bg-white/70'}`}>
+                      <span><span className="block text-xs font-black text-slate-800">ใช้รุ่น / ตัวเลือกในการสร้างภาพ</span><span className="mt-0.5 block text-[11px] text-slate-500">ปิดอยู่: AI จะไม่เห็นสี ขนาด หรือรุ่น</span></span>
+                      <input type="checkbox" checked={useVariantsInGeneration} onChange={event => setUseVariantsInGeneration(event.target.checked)} className="h-5 w-5 shrink-0 accent-orange-500" aria-label="ใช้รุ่นและตัวเลือกในการสร้างภาพ" />
+                    </label>
+                  </div>
+                  <p className={`mt-2 text-[11px] font-medium ${theme === 'dark' ? 'text-emerald-100/70' : 'text-emerald-800/75'}`}>ข้อมูลที่ปิดจะไม่ถูกส่งไปยัง AI · การสร้างภาพแยกจากตัวเลือกที่เลือก จะใช้ตัวเลือกนั้นโดยตรง</p>
                   <div className="mt-4 grid gap-3 sm:grid-cols-3">
                     <label className="text-xs font-bold text-slate-600 dark:text-slate-300">ราคาแสดง<input value={productPrice.display || ''} onChange={event => setProductPrice(previous => ({ ...previous, currency: 'THB', display: event.target.value }))} placeholder="เช่น ฿199 หรือ ฿199 - ฿299" className="mt-1 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-emerald-500"/></label>
                     <label className="text-xs font-bold text-slate-600 dark:text-slate-300">ราคาต่ำสุด<input type="number" min="0" value={productPrice.min ?? productPrice.current ?? ''} onChange={event => updateProductPrice('min', event.target.value)} placeholder="199" className="mt-1 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-emerald-500"/></label>
@@ -2372,7 +2491,7 @@ const App: React.FC = () => {
                   >
                     <Plus className="mx-auto mb-3 h-7 w-7" />
                     <span className="block text-sm font-black">เพิ่มรูปภาพ</span>
-                    <span className={`mt-2 block text-xs font-bold ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>PNG, JPG, WEBP</span>
+                    <span className={`mt-2 block text-xs font-bold ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>PNG, JPG, WEBP · วิเคราะห์ 4 รูปแรก</span>
                   </button>
                 </div>
               </div>
@@ -2394,7 +2513,7 @@ const App: React.FC = () => {
                     </div>
                     <p className={`text-xl font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>ลากและวางไฟล์ที่นี่</p>
                     <p className={`mt-2 text-sm font-bold ${theme === 'dark' ? 'text-slate-300' : 'text-slate-500'}`}>หรือคลิกเพื่อเลือกไฟล์</p>
-                    <p className={`mt-4 text-xs font-bold leading-6 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>รองรับ: PNG, JPG, WEBP<br />ขนาดสูงสุด 10MB</p>
+                    <p className={`mt-4 text-xs font-bold leading-6 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>รองรับ: PNG, JPG, WEBP<br />ขนาดไฟล์ละสูงสุด 10 MB<br />AI วิเคราะห์สูงสุด 4 รูปแรก<br />สร้างภาพและสรุปใช้สูงสุด 3 รูปแรก</p>
                   </div>
                   <input type="file" multiple accept="image/*" className="hidden" ref={fileInputRef} onChange={handleFileChange} />
                 </div>
@@ -2830,6 +2949,15 @@ const App: React.FC = () => {
 
         {step === 3 && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
+            {isGenerating && (
+              <button
+                onClick={stopResultsGeneration}
+                className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-2xl border border-rose-300 bg-rose-600 px-5 py-3.5 text-sm font-black text-white shadow-2xl shadow-rose-950/30 transition hover:bg-rose-700 active:scale-95"
+              >
+                <X className="h-5 w-5" />
+                หยุดการสร้างภาพ
+              </button>
+            )}
             {/* Results Dashboard Header */}
             <div className={`${theme === 'dark' ? 'bg-gray-800 border-gray-700 ring-gray-700' : 'bg-white border-slate-100 ring-slate-50'} rounded-[3.5rem] p-12 border shadow-2xl mb-12 overflow-hidden relative ring-1`}>
               <div className="absolute top-0 right-0 w-80 h-80 bg-orange-100/30 rounded-full -mr-40 -mt-40 blur-[100px] -z-10"></div>
@@ -2871,6 +2999,7 @@ const App: React.FC = () => {
                   </div>
                   <div className="flex gap-3 w-full mt-2">
                     <button onClick={() => setStep(2)} className={`flex-1 rounded-[1.25rem] px-5 py-3.5 ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-white border-2 border-slate-200 hover:bg-slate-50 text-slate-700'} font-black text-xs transition-all shadow-sm active:scale-95`}>ย้อนกลับ</button>
+                    {isGenerating && <button onClick={stopResultsGeneration} className="rounded-[1.25rem] border border-rose-300 bg-rose-50 px-4 py-3.5 text-xs font-black text-rose-700 shadow-sm transition hover:bg-rose-100 dark:bg-rose-950/30 dark:text-rose-200"><X className="h-4 w-4" /></button>}
                     <button
                       onClick={handleDownloadAll}
                       disabled={isGenerating || isZipping || completedCount === 0}
@@ -3260,6 +3389,12 @@ const App: React.FC = () => {
                               <p className={`text-lg font-black tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>กำลังรังสรรค์ภาพ...</p>
                               <p className={`text-[10px] font-black uppercase mt-2 tracking-[0.2em] ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'}`}>{meta.title}</p>
                             </div>
+                            <button
+                              onClick={(event) => { event.stopPropagation(); stopResultsGeneration(); }}
+                              className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-2 text-xs font-black text-rose-700 shadow-sm transition hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-200"
+                            >
+                              หยุดการสร้าง
+                            </button>
                           </div>
                         )}
 

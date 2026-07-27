@@ -90,6 +90,8 @@ export type ThaiAdsSession = {
   factsText: string;
   price?: ProductPrice;
   variantGroups?: ProductVariantGroup[];
+  usePrice: boolean;
+  useVariants: boolean;
   count: number;
   heroWithPerson: boolean;
   personBrief: string;
@@ -107,6 +109,8 @@ export const createThaiAdsSession = (): ThaiAdsSession => ({
   factsText: '',
   price: { currency: 'THB' },
   variantGroups: [],
+  usePrice: false,
+  useVariants: false,
   count: 10,
   heroWithPerson: true,
   personBrief: 'คนไทยหรือเอเชียวัยผู้ใหญ่ พรีเซนเตอร์ยิ้มแย้มถือสินค้าเด่นออกมาด้านหน้าใกล้กล้อง',
@@ -344,6 +348,11 @@ async function imageWithCopy(
     canvas.toBlob(blob => (blob ? resolve(blob) : reject(new Error('Export failed'))), 'image/png')
   );
 }
+const imageToBlob = async (url: string): Promise<Blob> => {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`ไม่สามารถดาวน์โหลดภาพได้ (HTTP ${response.status})`);
+  return response.blob();
+};
 
 export function ShopeeAdsStudio({ dark, imageModel, session, setSession }: {
   dark: boolean;
@@ -351,20 +360,25 @@ export function ShopeeAdsStudio({ dark, imageModel, session, setSession }: {
   session: ThaiAdsSession;
   setSession: React.Dispatch<React.SetStateAction<ThaiAdsSession>>;
 }) {
-  const { assets, name, details, factsText, price, variantGroups = [], count, heroWithPerson, personBrief, campaignStyle, campaignDirection, cards, isGenerating, notice } = session;
+  const { assets, name, details, factsText, price, variantGroups = [], usePrice = false, useVariants = false, count, heroWithPerson, personBrief, campaignStyle, campaignDirection, cards, isGenerating, notice } = session;
   const fileRefs = { product: useRef<HTMLInputElement>(null), package: useRef<HTMLInputElement>(null), logo: useRef<HTMLInputElement>(null) };
+  const activeGenerationRef = useRef<AbortController | null>(null);
   const allImages = useMemo(() => [...assets.product, ...assets.package, ...assets.logo], [assets]);
   const confirmedFacts = useMemo(() => factsText.split('\n').map(x => x.trim()).filter(Boolean), [factsText]);
   const commerceFacts = useMemo(() => {
     const output: string[] = [];
-    if (price?.display) output.push(`ราคาขายที่ยืนยัน: ${price.display}`);
-    else if (typeof price?.current === 'number') output.push(`ราคาขายที่ยืนยัน: ${new Intl.NumberFormat('th-TH', { style: 'currency', currency: price.currency || 'THB' }).format(price.current)}`);
-    variantGroups.forEach(group => {
-      const options = group.options.map(option => option.label).filter(Boolean);
-      if (options.length) output.push(`${group.name}: ${options.join(', ')}`);
-    });
+    if (usePrice) {
+      if (price?.display) output.push(`ราคาขายที่ยืนยัน: ${price.display}`);
+      else if (typeof price?.current === 'number') output.push(`ราคาขายที่ยืนยัน: ${new Intl.NumberFormat('th-TH', { style: 'currency', currency: price.currency || 'THB' }).format(price.current)}`);
+    }
+    if (useVariants) {
+      variantGroups.forEach(group => {
+        const options = group.options.map(option => option.label).filter(Boolean);
+        if (options.length) output.push(`${group.name}: ${options.join(', ')}`);
+      });
+    }
     return output;
-  }, [price, variantGroups]);
+  }, [price, variantGroups, usePrice, useVariants]);
   const allFacts = useMemo(() => [...confirmedFacts, ...commerceFacts], [confirmedFacts, commerceFacts]);
   const classCard = dark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900';
   const modelLabel = imageModel === 'gemini-3.1-flash-image' ? 'Gemini 3.1 Flash Image' : imageModel;
@@ -388,46 +402,83 @@ export function ShopeeAdsStudio({ dark, imageModel, session, setSession }: {
     heroCreativeMode: isHeroCard(base.id) ? 'human-product-female' as HeroCreativeMode : undefined,
   }));
   const updateCard = (id: string, patch: Partial<ThaiAdsCard>) => setSession(prev => ({ ...prev, cards: prev.cards.map(card => card.id === id ? { ...card, ...patch } : card) }));
-  const productForGeneration = (): ProductData => ({ name, description: details, features: allFacts, images: allImages, price, variantGroups });
+  const productForGeneration = (): ProductData => ({
+    name,
+    description: details,
+    features: allFacts,
+    images: allImages,
+    price: usePrice ? price : undefined,
+    variantGroups: useVariants ? variantGroups : [],
+  });
+  const stopGeneration = () => {
+    if (!activeGenerationRef.current) return;
+    const confirmed = window.confirm('หยุดการสร้างภาพตอนนี้หรือไม่?\n\nคำขอถูกส่งให้ AI แล้ว เครดิตอาจถูกใช้ไปแล้วและไม่สามารถคืนอัตโนมัติได้ คุณยืนยันที่จะหยุดใช่หรือไม่?');
+    if (!confirmed) return;
+
+    activeGenerationRef.current.abort();
+    activeGenerationRef.current = null;
+    setSession(prev => ({
+      ...prev,
+      isGenerating: false,
+      notice: 'หยุดการสร้างแล้ว คุณสามารถกดสร้างใหม่ได้ทันที',
+      cards: prev.cards.map(card => card.status === 'generating'
+        ? { ...card, status: 'ready', imageUrl: undefined, error: undefined }
+        : card),
+    }));
+  };
 
   const generate = async () => {
     if (!allImages.length) return setSession(prev => ({ ...prev, notice: 'เพิ่มภาพสินค้าหลักอย่างน้อย 1 ภาพก่อนเริ่มสร้าง' }));
     if (!name.trim()) return setSession(prev => ({ ...prev, notice: 'ใส่ชื่อสินค้าก่อนเริ่มสร้าง' }));
     const work = createCards();
+    const controller = new AbortController();
+    activeGenerationRef.current = controller;
     setSession(prev => ({ ...prev, cards: work, notice: 'AI วางแผนมุมกล้องและพรีเซนเตอร์แล้ว กำลังเริ่มคิวสร้าง…', isGenerating: true }));
     const product = productForGeneration();
     for (const card of work) {
+      if (controller.signal.aborted) break;
       updateCard(card.id, { status: 'generating', error: undefined });
       try {
-        const result = await generateProductImage(categoryForCard(card.id), product, 'shopee', buildThaiAdsPrompt(card, campaignDirection), imageModel, '1:1');
+        const result = await generateProductImage(categoryForCard(card.id), product, 'shopee', buildThaiAdsPrompt(card, campaignDirection), imageModel, '1:1', undefined, card, controller.signal);
         updateCard(card.id, { status: 'completed', imageUrl: result.imageUrl, thaiCopy: card.thaiCopy.length ? card.thaiCopy : result.thaiTexts, modelUsed: result.modelUsed, promptUsed: result.promptUsed });
       } catch (error) {
+        if (controller.signal.aborted) break;
         updateCard(card.id, { status: 'error', error: error instanceof Error ? error.message : 'สร้างภาพไม่สำเร็จ' });
       }
     }
-    setSession(prev => ({ ...prev, isGenerating: false, notice: 'สร้างภาพครบคิวแล้ว คุณเลือกสลับโหมดข้อความ AI / แอป / ภาพคลีน ได้รายภาพ' }));
+    if (activeGenerationRef.current === controller) activeGenerationRef.current = null;
+    if (!controller.signal.aborted) setSession(prev => ({ ...prev, isGenerating: false, notice: 'สร้างภาพครบคิวแล้ว คุณเลือกสลับโหมดข้อความ AI / แอป / ภาพคลีน ได้รายภาพ' }));
   };
   const regenerate = async (card: ThaiAdsCard) => {
-    if (!allImages.length) return;
-    updateCard(card.id, { status: 'generating', error: undefined });
+    if (!allImages.length || card.status === 'generating') return;
+    // Clear the previous image while the request is in flight. The result card
+    // then renders its spinner instead of silently leaving the old image visible.
+    const controller = new AbortController();
+    activeGenerationRef.current = controller;
+    updateCard(card.id, { status: 'generating', error: undefined, imageUrl: undefined });
+    setSession(prev => ({ ...prev, isGenerating: true, notice: `กำลังสร้างภาพใหม่: ${card.title}…` }));
     try {
-      const result = await generateProductImage(categoryForCard(card.id), productForGeneration(), 'shopee', buildThaiAdsPrompt(card, campaignDirection), imageModel, '1:1');
+      const result = await generateProductImage(categoryForCard(card.id), productForGeneration(), 'shopee', buildThaiAdsPrompt(card, campaignDirection), imageModel, '1:1', undefined, card, controller.signal);
       updateCard(card.id, { status: 'completed', imageUrl: result.imageUrl, thaiCopy: card.thaiCopy.length ? card.thaiCopy : result.thaiTexts, modelUsed: result.modelUsed, promptUsed: result.promptUsed });
+      setSession(prev => ({ ...prev, notice: `สร้างภาพใหม่แล้ว: ${card.title}` }));
     } catch (error) {
-      updateCard(card.id, { status: 'error', error: error instanceof Error ? error.message : 'สร้างภาพไม่สำเร็จ' });
+      if (controller.signal.aborted) {
+        updateCard(card.id, { status: 'ready', imageUrl: undefined, error: undefined });
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'สร้างภาพไม่สำเร็จ';
+      updateCard(card.id, { status: 'error', error: message, imageUrl: undefined });
+      setSession(prev => ({ ...prev, notice: `สร้างภาพใหม่ไม่สำเร็จ: ${message}` }));
+    } finally {
+      if (activeGenerationRef.current === controller) activeGenerationRef.current = null;
+      setSession(prev => ({ ...prev, isGenerating: false }));
     }
   };
   const download = async (card: ThaiAdsCard) => {
     if (!card.imageUrl) return;
-    const blob = await imageWithCopy(
-      card.imageUrl,
-      card.thaiCopy,
-      isHeroCard(card.id),
-      card.textOverlayStyle || '3d-outlined',
-      card.badgeText,
-      card.thaiFont || 'Prompt',
-      card.textRenderingMode || 'ai-native'
-    );
+    // Export the original AI output. Thai copy is kept editable in the card
+    // controls and must not be permanently painted onto every downloaded image.
+    const blob = await imageToBlob(card.imageUrl);
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `${cleanName(name)}-${card.id}.png`;
@@ -442,15 +493,7 @@ export function ShopeeAdsStudio({ dark, imageModel, session, setSession }: {
     for (const card of complete) {
       zip.file(
         `${cleanName(name)}-${card.id}.png`,
-        await imageWithCopy(
-          card.imageUrl!,
-          card.thaiCopy,
-          isHeroCard(card.id),
-          card.textOverlayStyle || '3d-outlined',
-          card.badgeText,
-          card.thaiFont || 'Prompt',
-          card.textRenderingMode || 'ai-native'
-        )
+        await imageToBlob(card.imageUrl!)
       );
     }
     const blob = await zip.generateAsync({ type: 'blob' });
@@ -473,12 +516,19 @@ export function ShopeeAdsStudio({ dark, imageModel, session, setSession }: {
         <div className="mt-5 grid gap-3 sm:grid-cols-3">{(['product', 'package', 'logo'] as AssetKind[]).map(kind => <div key={kind} className="rounded-2xl border border-dashed border-orange-300 bg-orange-50/60 p-4 text-center dark:bg-orange-950/20"><input ref={fileRefs[kind]} className="hidden" type="file" accept="image/*" multiple onChange={e => addAssets(kind, e.target.files)}/><ImagePlus className="mx-auto text-orange-500"/><p className="mt-2 text-sm font-bold">{kind === 'product' ? 'ภาพสินค้า *' : kind === 'package' ? 'กล่อง / อุปกรณ์' : 'โลโก้ร้าน'}</p><button onClick={() => fileRefs[kind].current?.click()} className="mt-3 text-xs font-bold text-orange-600">เพิ่มรูป ({assets[kind].length})</button></div>)}</div>
         {allImages.length > 0 && <div className="mt-4 flex gap-2 overflow-x-auto">{allImages.map(src => <div key={src} className="relative shrink-0"><img src={src} className="h-16 w-16 rounded-xl object-cover"/><button onClick={() => setSession(prev => ({ ...prev, assets: { product: prev.assets.product.filter(x => x !== src), package: prev.assets.package.filter(x => x !== src), logo: prev.assets.logo.filter(x => x !== src) } }))} className="absolute -right-1 -top-1 rounded-full bg-slate-900 p-1 text-white"><X size={11}/></button></div>)}</div>}
         <div className="mt-5 grid gap-4"><label className="text-sm font-bold">ชื่อสินค้า<input value={name} onChange={e => setSession(prev => ({ ...prev, name: e.target.value }))} placeholder="เช่น ไม้แขวนเสื้อเด็ก ยกลัง 144 ชิ้น" className="mt-1 w-full rounded-xl border border-slate-300 bg-transparent px-3 py-2.5 outline-none focus:border-orange-500"/></label><label className="text-sm font-bold">รายละเอียดสินค้า<textarea value={details} onChange={e => setSession(prev => ({ ...prev, details: e.target.value }))} rows={3} placeholder="บอกวัสดุ กลุ่มลูกค้า การใช้งาน หรือบริบทที่ต้องการ" className="mt-1 w-full rounded-xl border border-slate-300 bg-transparent px-3 py-2.5 outline-none focus:border-orange-500"/></label><label className="text-sm font-bold">ข้อเท็จจริงที่ยืนยันแล้ว <span className="font-normal text-slate-500">(หนึ่งข้อ/บรรทัด)</span><textarea value={factsText} onChange={e => setSession(prev => ({ ...prev, factsText: e.target.value }))} rows={5} placeholder={'เช่น พลาสติกเกรด A\nบรรจุ 144 ชิ้น\nสีสันสดใส ทนทานไม่หักง่าย'} className="mt-1 w-full rounded-xl border border-slate-300 bg-transparent px-3 py-2.5 outline-none focus:border-orange-500"/></label></div>
-        {commerceFacts.length > 0 && <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"><b>ข้อมูลการขายที่รับมาจาก Analyze</b><div className="mt-1 space-y-1">{commerceFacts.map(fact => <p key={fact}>• {fact}</p>)}</div></div>}
+        {(price?.display || typeof price?.current === 'number' || variantGroups.length > 0) && <div className="mt-4 rounded-2xl border border-orange-200 bg-orange-50/70 p-4 dark:border-orange-900/70 dark:bg-orange-950/20">
+          <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-sm font-black text-slate-900 dark:text-white">ใช้ข้อมูลราคาและตัวเลือกในภาพ</p><p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">ค่าเริ่มต้นปิด เพื่อไม่ให้ข้อมูลที่ดึงมาโดยอัตโนมัติรบกวน prompt</p></div><span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-orange-600 shadow-sm dark:bg-slate-900">เลือกเองได้</span></div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <label className={`flex cursor-pointer items-center justify-between gap-3 rounded-xl border p-3 ${usePrice ? 'border-orange-300 bg-white dark:bg-slate-900' : 'border-slate-200 bg-white/60 dark:border-slate-700 dark:bg-slate-900/50'}`}><span><span className="block text-xs font-black">ใช้ราคายืนยัน</span><span className="block text-[11px] text-slate-500">ส่งราคาให้ AI เฉพาะเมื่อเปิด</span></span><input type="checkbox" checked={usePrice} onChange={event => setSession(prev => ({ ...prev, usePrice: event.target.checked }))} className="h-5 w-5 shrink-0 accent-orange-500" aria-label="ใช้ราคายืนยันใน Thai Ads"/></label>
+            <label className={`flex cursor-pointer items-center justify-between gap-3 rounded-xl border p-3 ${useVariants ? 'border-orange-300 bg-white dark:bg-slate-900' : 'border-slate-200 bg-white/60 dark:border-slate-700 dark:bg-slate-900/50'}`}><span><span className="block text-xs font-black">ใช้รุ่น / ตัวเลือกสินค้า</span><span className="block text-[11px] text-slate-500">ส่งสี ขนาด และรุ่นให้ AI เฉพาะเมื่อเปิด</span></span><input type="checkbox" checked={useVariants} onChange={event => setSession(prev => ({ ...prev, useVariants: event.target.checked }))} className="h-5 w-5 shrink-0 accent-orange-500" aria-label="ใช้รุ่นและตัวเลือกใน Thai Ads"/></label>
+          </div>
+        </div>}
+        {commerceFacts.length > 0 && <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"><b>ข้อมูลการขายที่จะส่งให้ AI</b><div className="mt-1 space-y-1">{commerceFacts.map(fact => <p key={fact}>• {fact}</p>)}</div></div>}
       </div>
 
-      <div className={`rounded-3xl border p-6 shadow-sm ${classCard}`}><h3 className="font-black text-xl">2. AI วางแผนชุดภาพ</h3><div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">โมเดลที่เลือกสำหรับคิวนี้: {modelLabel}</div><div className="mt-5"><p className="text-sm font-bold">จำนวนภาพ</p><div className="mt-2 flex flex-wrap gap-2">{[4, 6, 8, 10].map(value => <button key={value} onClick={() => setSession(prev => ({ ...prev, count: value }))} className={`rounded-xl px-4 py-2 text-sm font-bold ${count === value ? 'bg-orange-500 text-white' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-200'}`}>{value} ภาพ</button>)}</div></div><div className="mt-5"><label className="text-sm font-bold">โทนหลักของทั้งชุด<select value={campaignStyle} onChange={e => { const style = e.target.value as CampaignStyle; setSession(prev => ({ ...prev, campaignStyle: style, campaignDirection: styleMeta(style).direction })); }} className="mt-1 w-full rounded-xl border border-slate-300 bg-transparent px-3 py-2.5 text-sm outline-none focus:border-orange-500">{CAMPAIGN_STYLES.map(style => <option key={style.id} value={style.id} className="text-slate-900">{style.label} — {style.description}</option>)}</select></label><label className="mt-3 block text-sm font-bold">คำสั่งคุมโทนร่วมกัน<textarea value={campaignDirection} onChange={e => setSession(prev => ({ ...prev, campaignDirection: e.target.value }))} rows={4} className="mt-1 w-full rounded-xl border border-slate-300 bg-transparent px-3 py-2 text-xs outline-none focus:border-orange-500"/></label><p className="mt-2 text-xs text-slate-500">AI จะใส่คำสั่งนี้ในทุกภาพ เพื่อคุมสี แสง วัสดุพื้นหลัง และภาษาองค์ประกอบให้เป็นแคมเปญเดียวกัน</p></div><div className="mt-5 rounded-2xl border border-orange-200 bg-orange-50 p-4 dark:bg-orange-950/20"><label className="flex cursor-pointer items-center gap-3"><input type="checkbox" checked={heroWithPerson} onChange={e => setSession(prev => ({ ...prev, heroWithPerson: e.target.checked }))} className="h-4 w-4 accent-orange-500"/><span className="font-bold"><UserRound className="mr-1 inline" size={17}/>ภาพปกมีพรีเซนเตอร์ถือ/แสดงสินค้า (Brand Ambassador Shot)</span></label>{heroWithPerson && <input value={personBrief} onChange={e => setSession(prev => ({ ...prev, personBrief: e.target.value }))} placeholder="ระบุพรีเซนเตอร์ เช่น พรีเซนเตอร์หญิงไทย/เอเชีย ยิ้มแย้มถือสินค้าเสนอหน้ากล้อง" className="mt-3 w-full rounded-xl border border-orange-200 bg-white px-3 py-2 text-sm text-slate-800"/>}</div><div className="mt-6 space-y-2">{BLUEPRINTS.slice(0, count).map((item, index) => <div key={item.id} className="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2 dark:bg-slate-800"><span className="w-6 text-xs font-black text-orange-500">{String(index + 1).padStart(2, '0')}</span><span className="text-sm font-semibold">{item.title}</span>{item.includePerson && <UserRound className="ml-auto text-orange-500" size={16}/>}</div>)}</div><button disabled={isGenerating} onClick={generate} className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-orange-500 px-5 py-3.5 font-black text-white shadow-lg shadow-orange-500/25 disabled:opacity-50">{isGenerating ? <Loader2 className="animate-spin"/> : <Sparkles/>}{isGenerating ? 'กำลังสร้างภาพตามคิว…' : `วางแผนและสร้าง ${count} ภาพ`}</button>{notice && <p className="mt-3 text-center text-sm text-slate-500">{notice}</p>}</div>
+      <div className={`rounded-3xl border p-6 shadow-sm ${classCard}`}><h3 className="font-black text-xl">2. AI วางแผนชุดภาพ</h3><div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">โมเดลที่เลือกสำหรับคิวนี้: {modelLabel}</div><div className="mt-5"><p className="text-sm font-bold">จำนวนภาพ</p><div className="mt-2 flex flex-wrap gap-2">{[4, 6, 8, 10].map(value => <button key={value} onClick={() => setSession(prev => ({ ...prev, count: value }))} className={`rounded-xl px-4 py-2 text-sm font-bold ${count === value ? 'bg-orange-500 text-white' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-200'}`}>{value} ภาพ</button>)}</div></div><div className="mt-5"><label className="text-sm font-bold">โทนหลักของทั้งชุด<select value={campaignStyle} onChange={e => { const style = e.target.value as CampaignStyle; setSession(prev => ({ ...prev, campaignStyle: style, campaignDirection: styleMeta(style).direction })); }} className="mt-1 w-full rounded-xl border border-slate-300 bg-transparent px-3 py-2.5 text-sm outline-none focus:border-orange-500">{CAMPAIGN_STYLES.map(style => <option key={style.id} value={style.id} className="text-slate-900">{style.label} — {style.description}</option>)}</select></label><label className="mt-3 block text-sm font-bold">คำสั่งคุมโทนร่วมกัน<textarea value={campaignDirection} onChange={e => setSession(prev => ({ ...prev, campaignDirection: e.target.value }))} rows={4} className="mt-1 w-full rounded-xl border border-slate-300 bg-transparent px-3 py-2 text-xs outline-none focus:border-orange-500"/></label><p className="mt-2 text-xs text-slate-500">AI จะใส่คำสั่งนี้ในทุกภาพ เพื่อคุมสี แสง วัสดุพื้นหลัง และภาษาองค์ประกอบให้เป็นแคมเปญเดียวกัน</p></div><div className="mt-5 rounded-2xl border border-orange-200 bg-orange-50 p-4 dark:bg-orange-950/20"><label className="flex cursor-pointer items-center gap-3"><input type="checkbox" checked={heroWithPerson} onChange={e => setSession(prev => ({ ...prev, heroWithPerson: e.target.checked }))} className="h-4 w-4 accent-orange-500"/><span className="font-bold"><UserRound className="mr-1 inline" size={17}/>ภาพปกมีพรีเซนเตอร์ถือ/แสดงสินค้า (Brand Ambassador Shot)</span></label>{heroWithPerson && <input value={personBrief} onChange={e => setSession(prev => ({ ...prev, personBrief: e.target.value }))} placeholder="ระบุพรีเซนเตอร์ เช่น พรีเซนเตอร์หญิงไทย/เอเชีย ยิ้มแย้มถือสินค้าเสนอหน้ากล้อง" className="mt-3 w-full rounded-xl border border-orange-200 bg-white px-3 py-2 text-sm text-slate-800"/>}</div><div className="mt-6 space-y-2">{BLUEPRINTS.slice(0, count).map((item, index) => <div key={item.id} className="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2 dark:bg-slate-800"><span className="w-6 text-xs font-black text-orange-500">{String(index + 1).padStart(2, '0')}</span><span className="text-sm font-semibold">{item.title}</span>{item.includePerson && <UserRound className="ml-auto text-orange-500" size={16}/>}</div>)}</div><button disabled={isGenerating} onClick={generate} className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-orange-500 px-5 py-3.5 font-black text-white shadow-lg shadow-orange-500/25 disabled:opacity-50">{isGenerating ? <Loader2 className="animate-spin"/> : <Sparkles/>}{isGenerating ? 'กำลังสร้างภาพตามคิว…' : `วางแผนและสร้าง ${count} ภาพ`}</button>{isGenerating && <button onClick={stopGeneration} className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-rose-300 bg-rose-50 px-5 py-3 font-black text-rose-700 dark:bg-rose-950/30 dark:text-rose-200"><X size={18}/>หยุดการสร้าง</button>}{notice && <p className="mt-3 text-center text-sm text-slate-500">{notice}</p>}</div>
     </div>
 
-    {cards.length > 0 && <div className={`rounded-3xl border p-6 shadow-sm ${classCard}`}><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-black text-xl">3. ผลลัพธ์และข้อความไทย</h3><p className="text-sm text-slate-500">เลือกแนวภาพปก แบรนด์แอมบาสเดอร์หญิง/ชาย ฟอนต์ไทย และสไตล์ภาพได้รายการ์ด</p></div><button onClick={downloadZip} disabled={!cards.some(c => c.imageUrl)} className="flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40 dark:bg-white dark:text-slate-900"><Package size={17}/>ดาวน์โหลด ZIP</button></div><div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-3">{cards.map((card, index) => <article key={card.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800"><div className="relative aspect-square bg-slate-200 dark:bg-slate-700 overflow-hidden">{card.imageUrl ? <> <img src={card.imageUrl} className={`h-full w-full object-cover transition-all ${card.status === 'generating' ? 'opacity-30 blur-[2px]' : ''}`}/> {card.status === 'generating' && <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-slate-900/60 text-white backdrop-blur-sm"><Loader2 className="animate-spin text-orange-500" size={38}/><span className="text-xs font-black tracking-wide text-orange-200 animate-pulse">กำลังสร้างภาพใหม่…</span></div>} </> : <div className="flex h-full flex-col items-center justify-center gap-3 text-slate-500">{card.status === 'generating' ? <Loader2 className="animate-spin text-orange-500" size={38}/> : <ImagePlus size={30}/>}<span className="text-sm font-bold">{card.status === 'error' ? card.error : card.status === 'generating' ? 'กำลังสร้าง…' : 'รอคิว'}</span></div>}</div><div className="p-4"><div className="flex items-center justify-between"><span className="text-xs font-black text-orange-500">{String(index + 1).padStart(2, '0')}</span><span className="text-sm font-bold">{card.title}</span></div><p title={card.modelUsed || modelLabel} className="mt-2 truncate rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">{card.status === 'generating' ? `กำลังใช้: ${modelLabel}` : `ใช้จริง: ${card.modelUsed || 'รอสร้างภาพ'}`}</p><label className="mt-3 block text-xs font-bold text-orange-700">⚙️ โหมดการสร้างตัวอักษร/ฟอนต์<select value={card.textRenderingMode || 'ai-native'} onChange={e => updateCard(card.id, { textRenderingMode: e.target.value as TextRenderingMode })} className="mt-1 w-full rounded-xl border border-orange-200 bg-orange-50 p-2 text-xs font-bold text-slate-800 outline-none focus:border-orange-500"><option value="ai-native">🤖 AI Native Typography (ให้อิสระ AI วาดฟอนต์/กราฟิก)</option><option value="app-overlay">🎨 App Overlay (ใส่อักษร 3D/Banner ด้วยแอป)</option><option value="clean">🖼️ Clean Image (ภาพคลีน ไร้ตัวอักษร)</option></select></label>{isHeroCard(card.id) && <label className="mt-3 block text-xs font-bold text-orange-700">🖼️ แนวภาพปก & แบรนด์แอมบาสเดอร์<select value={card.heroCreativeMode || 'human-product-female'} onChange={e => updateCard(card.id, { heroCreativeMode: e.target.value as HeroCreativeMode })} className="mt-1 w-full rounded-xl border border-orange-200 bg-orange-50 p-2 text-xs font-bold text-slate-800 outline-none focus:border-orange-500">{HERO_CREATIVE_MODES.map(mode => <option key={mode.id} value={mode.id}>{mode.label}</option>)}</select></label>}<div className="mt-3 space-y-3">{card.textRenderingMode === 'app-overlay' && <label className="block text-xs font-bold text-orange-700">🔤 ฟอนต์ข้อความไทย<select value={card.thaiFont || 'Prompt'} onChange={e => updateCard(card.id, { thaiFont: e.target.value })} className="mt-1 w-full rounded-xl border border-orange-200 bg-white p-2 text-xs font-bold text-slate-800 outline-none focus:border-orange-500">{THAI_FONTS.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}</select></label>}<div className="grid grid-cols-2 gap-2"><label className="block text-xs font-bold">สไตล์ภาพ<select value={card.visualStyle} onChange={e => updateCard(card.id, { visualStyle: e.target.value as CampaignStyle })} className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs text-slate-800 outline-none focus:border-orange-500">{CAMPAIGN_STYLES.map(style => <option key={style.id} value={style.id}>{style.label}</option>)}</select></label>{card.textRenderingMode === 'app-overlay' && <label className="block text-xs font-bold">รูปแบบเลย์เอาต์<select value={card.textOverlayStyle || '3d-outlined'} onChange={e => updateCard(card.id, { textOverlayStyle: e.target.value as TextOverlayStyle })} className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs text-slate-800 outline-none focus:border-orange-500"><option value="3d-outlined">🌟 ตัวหนา 3D Outline</option><option value="top-banner">⬛ แถบแบนเนอร์ชิดบน</option><option value="modern-card">📦 การ์ดเรียบหรู</option></select></label>}</div>{card.textRenderingMode === 'app-overlay' && <label className="block text-xs font-bold">ข้อความป้าย Badge<input value={card.badgeText || ''} onChange={e => updateCard(card.id, { badgeText: e.target.value })} placeholder="เช่น พลาสติกเกรด A" className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs text-slate-800 outline-none focus:border-orange-500"/></label>}</div><textarea value={card.thaiCopy.join('\n')} onChange={e => updateCard(card.id, { thaiCopy: e.target.value.split('\n').filter(Boolean) })} placeholder={isHeroCard(card.id) ? "บรรทัด 1: Hook หลัก · บรรทัด 2: ข้อความประกอบเล็ก" : "ข้อความไทยที่ต้องการวางบนภาพ"} rows={isHeroCard(card.id) ? 2 : 3} className="mt-3 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs text-slate-800 outline-none focus:border-orange-500"/><div className="mt-3 flex gap-2"><button onClick={() => regenerate(card)} disabled={card.status === 'generating'} className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-orange-200 py-2 text-xs font-bold text-orange-600 disabled:opacity-40 hover:bg-orange-50 transition-colors">{card.status === 'generating' ? <Loader2 className="animate-spin text-orange-500" size={14}/> : <RefreshCw size={14}/>}{card.status === 'generating' ? 'กำลังสร้าง…' : 'สร้างใหม่'}</button><button onClick={() => download(card)} disabled={!card.imageUrl || card.status === 'generating'} className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-orange-500 py-2 text-xs font-bold text-white disabled:opacity-40"><Download size={14}/>PNG</button></div></div></article>)}</div></div>}
+    {cards.length > 0 && <div className={`rounded-3xl border p-6 shadow-sm ${classCard}`}><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-black text-xl">3. ผลลัพธ์และข้อความไทย</h3><p className="text-sm text-slate-500">เลือกแนวภาพปก แบรนด์แอมบาสเดอร์หญิง/ชาย ฟอนต์ไทย และสไตล์ภาพได้รายการ์ด</p></div>{isGenerating && <button onClick={stopGeneration} className="flex items-center gap-2 rounded-xl border border-rose-300 bg-rose-50 px-4 py-2.5 text-sm font-bold text-rose-700 dark:bg-rose-950/30 dark:text-rose-200"><X size={17}/>หยุดการสร้าง</button>}<button onClick={downloadZip} disabled={!cards.some(c => c.imageUrl)} className="flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40 dark:bg-white dark:text-slate-900"><Package size={17}/>ดาวน์โหลด ZIP</button></div><div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-3">{cards.map((card, index) => <article key={card.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800"><div className="aspect-square bg-slate-200 dark:bg-slate-700">{card.status === 'generating' ? <div className="flex h-full flex-col items-center justify-center gap-3 text-orange-500"><Loader2 className="animate-spin" size={34}/><span className="text-sm font-bold">กำลังสร้างภาพใหม่…</span></div> : card.imageUrl ? <img src={card.imageUrl} className="h-full w-full object-cover"/> : <div className="flex h-full flex-col items-center justify-center gap-3 text-slate-500"><ImagePlus size={30}/><span className="text-sm">{card.status === 'error' ? card.error : 'รอคิว'}</span></div>}</div><div className="p-4"><div className="flex items-center justify-between"><span className="text-xs font-black text-orange-500">{String(index + 1).padStart(2, '0')}</span><span className="text-sm font-bold">{card.title}</span></div><p title={card.modelUsed || modelLabel} className="mt-2 truncate rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">{card.status === 'generating' ? `กำลังใช้: ${modelLabel}` : `ใช้จริง: ${card.modelUsed || 'รอสร้างภาพ'}`}</p><label className="mt-3 block text-xs font-bold text-orange-700">⚙️ โหมดการสร้างตัวอักษร/ฟอนต์<select value={card.textRenderingMode || 'ai-native'} onChange={e => updateCard(card.id, { textRenderingMode: e.target.value as TextRenderingMode })} className="mt-1 w-full rounded-xl border border-orange-200 bg-orange-50 p-2 text-xs font-bold text-slate-800 outline-none focus:border-orange-500"><option value="ai-native">🤖 AI Native Typography (ให้อิสระ AI วาดฟอนต์/กราฟิก)</option><option value="app-overlay">🎨 App Overlay (ใส่อักษร 3D/Banner ด้วยแอป)</option><option value="clean">🖼️ Clean Image (ภาพคลีน ไร้ตัวอักษร)</option></select></label>{isHeroCard(card.id) && <label className="mt-3 block text-xs font-bold text-orange-700">🖼️ แนวภาพปก & แบรนด์แอมบาสเดอร์<select value={card.heroCreativeMode || 'human-product-female'} onChange={e => updateCard(card.id, { heroCreativeMode: e.target.value as HeroCreativeMode })} className="mt-1 w-full rounded-xl border border-orange-200 bg-orange-50 p-2 text-xs font-bold text-slate-800 outline-none focus:border-orange-500">{HERO_CREATIVE_MODES.map(mode => <option key={mode.id} value={mode.id}>{mode.label}</option>)}</select></label>}<div className="mt-3 space-y-3">{card.textRenderingMode === 'app-overlay' && <label className="block text-xs font-bold text-orange-700">🔤 ฟอนต์ข้อความไทย<select value={card.thaiFont || 'Prompt'} onChange={e => updateCard(card.id, { thaiFont: e.target.value })} className="mt-1 w-full rounded-xl border border-orange-200 bg-white p-2 text-xs font-bold text-slate-800 outline-none focus:border-orange-500">{THAI_FONTS.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}</select></label>}<div className="grid grid-cols-2 gap-2"><label className="block text-xs font-bold">สไตล์ภาพ<select value={card.visualStyle} onChange={e => updateCard(card.id, { visualStyle: e.target.value as CampaignStyle })} className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs text-slate-800 outline-none focus:border-orange-500">{CAMPAIGN_STYLES.map(style => <option key={style.id} value={style.id}>{style.label}</option>)}</select></label>{card.textRenderingMode === 'app-overlay' && <label className="block text-xs font-bold">รูปแบบเลย์เอาต์<select value={card.textOverlayStyle || '3d-outlined'} onChange={e => updateCard(card.id, { textOverlayStyle: e.target.value as TextOverlayStyle })} className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs text-slate-800 outline-none focus:border-orange-500"><option value="3d-outlined">🌟 ตัวหนา 3D Outline</option><option value="top-banner">⬛ แถบแบนเนอร์ชิดบน</option><option value="modern-card">📦 การ์ดเรียบหรู</option></select></label>}</div>{card.textRenderingMode === 'app-overlay' && <label className="block text-xs font-bold">ข้อความป้าย Badge<input value={card.badgeText || ''} onChange={e => updateCard(card.id, { badgeText: e.target.value })} placeholder="เช่น พลาสติกเกรด A" className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs text-slate-800 outline-none focus:border-orange-500"/></label>}</div><textarea value={card.thaiCopy.join('\n')} onChange={e => updateCard(card.id, { thaiCopy: e.target.value.split('\n').filter(Boolean) })} placeholder={isHeroCard(card.id) ? "บรรทัด 1: Hook หลัก · บรรทัด 2: ข้อความประกอบเล็ก" : "ข้อความไทยที่ต้องการวางบนภาพ"} rows={isHeroCard(card.id) ? 2 : 3} className="mt-3 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs text-slate-800 outline-none focus:border-orange-500"/><div className="mt-3 flex gap-2"><button onClick={() => regenerate(card)} disabled={card.status === 'generating'} className="flex flex-1 items-center justify-center gap-1 rounded-xl border border-orange-200 py-2 text-xs font-bold text-orange-600 disabled:opacity-40"><RefreshCw size={14}/>สร้างใหม่</button><button onClick={() => download(card)} disabled={!card.imageUrl} className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-orange-500 py-2 text-xs font-bold text-white disabled:opacity-40"><Download size={14}/>PNG</button></div></div></article>)}</div></div>}
   </section>;
 }

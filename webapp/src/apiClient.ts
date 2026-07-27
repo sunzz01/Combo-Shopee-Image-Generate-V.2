@@ -9,6 +9,7 @@
 
 import { ImageCategory, ImageGenerationResult, ProductData } from '../types';
 import { auth } from './firebase';
+import { uploadImageToStorage } from './imageStorage';
 
 // ═══════════════════════════════════════════════════════════════
 //  Config
@@ -98,9 +99,34 @@ async function shrinkImageForApi(
   return canvas.toDataURL('image/jpeg', qualitySteps[qualitySteps.length - 1] ?? 0.42);
 }
 
-async function prepareImagesForApi(images?: string[], maxImages: number = 4): Promise<string[] | undefined> {
-  if (!images?.length) return undefined;
+interface PreparedImages {
+  images?: string[];
+  storagePaths?: string[];
+}
+
+function compactProductData(productData: ProductData): Omit<ProductData, 'images' | 'referenceImages'> {
+  const { images: _images, referenceImages: _referenceImages, ...textData } = productData;
+  return textData;
+}
+
+const imageJobIds = new Map<string, string>();
+
+async function prepareImagesForApi(images?: string[], maxImages: number = 4): Promise<PreparedImages> {
+  if (!images?.length) return {};
   const sourceImages = images.filter(Boolean).slice(0, maxImages);
+  const fingerprint = sourceImages.map((source) => `${source.length}:${source.slice(0, 64)}`).join('|');
+  const jobId = imageJobIds.get(fingerprint) || crypto.randomUUID();
+  imageJobIds.set(fingerprint, jobId);
+  const stored = await Promise.allSettled(sourceImages.map((source, index) => uploadImageToStorage(source, jobId, index)));
+  const storagePaths = stored
+    .filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof uploadImageToStorage>>> => result.status === 'fulfilled')
+    .map(result => result.value.path);
+  const uploadFailed = sourceImages.filter((_, index) => stored[index]?.status !== 'fulfilled');
+
+  // A failed Storage upload should not block the existing workflow. Compress only
+  // those images and send them inline as the temporary fallback.
+  if (!uploadFailed.length) return { storagePaths };
+
   const compressionProfiles = [
     { maxEdge: 900, qualitySteps: [0.72, 0.62, 0.52, 0.44] },
     { maxEdge: 720, qualitySteps: [0.64, 0.54, 0.46, 0.38] },
@@ -111,13 +137,13 @@ async function prepareImagesForApi(images?: string[], maxImages: number = 4): Pr
   let bestEffort: string[] = [];
   for (const profile of compressionProfiles) {
     const prepared = await Promise.all(
-      sourceImages.map((image) => shrinkImageForApi(image, profile.maxEdge, profile.qualitySteps)),
+      uploadFailed.map((image) => shrinkImageForApi(image, profile.maxEdge, profile.qualitySteps)),
     );
     const totalBytes = prepared.reduce((sum, image) => sum + estimateBase64Bytes(image), 0);
     bestEffort = prepared;
 
     if (totalBytes <= MAX_API_PAYLOAD_BYTES) {
-      return prepared;
+      return { storagePaths: storagePaths.length ? storagePaths : undefined, images: prepared };
     }
   }
 
@@ -130,14 +156,14 @@ async function prepareImagesForApi(images?: string[], maxImages: number = 4): Pr
     totalBytes += imageBytes;
   }
 
-  return packed.length ? packed : undefined;
+  return { storagePaths: storagePaths.length ? storagePaths : undefined, images: packed.length ? packed : undefined };
 }
 
 // ═══════════════════════════════════════════════════════════════
 //  Generic fetch wrapper with error handling
 // ═══════════════════════════════════════════════════════════════
 
-async function apiPost<T>(path: string, body: any): Promise<T> {
+async function apiPost<T>(path: string, body: any, signal?: AbortSignal): Promise<T> {
   const url = `${API_BASE}${path}`;
   console.log(`[ApiClient] POST ${url}`);
   const token = await auth.currentUser?.getIdToken();
@@ -148,6 +174,8 @@ async function apiPost<T>(path: string, body: any): Promise<T> {
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 60000);
+  const abortFromCaller = () => controller.abort();
+  signal?.addEventListener('abort', abortFromCaller, { once: true });
 
   let response: Response;
   try {
@@ -163,10 +191,15 @@ async function apiPost<T>(path: string, body: any): Promise<T> {
     clearTimeout(timeoutId);
   } catch (err: any) {
     clearTimeout(timeoutId);
+    if (signal?.aborted) {
+      throw new Error('ผู้ใช้หยุดการสร้างภาพแล้ว');
+    }
     if (err.name === 'AbortError') {
       throw new Error('คำขอสร้างภาพใช้เวลานานเกินไป (Timeout 60 วินาที) กรุณากดสร้างใหม่อีกครั้ง');
     }
     throw err;
+  } finally {
+    signal?.removeEventListener('abort', abortFromCaller);
   }
 
   const contentType = response.headers.get('content-type') || '';
@@ -216,10 +249,10 @@ export async function analyzeProduct(
   productInfo: string,
   images?: string[],
 ): Promise<ProductAnalysis> {
-  const apiImages = await prepareImagesForApi(images, 4);
+  const preparedImages = await prepareImagesForApi(images, 4);
   return apiPost<ProductAnalysis>('/api/analyze', {
     productInfo,
-    images: apiImages,
+    ...preparedImages,
   });
 }
 
@@ -235,7 +268,20 @@ export async function generateProductImage(
   imageModel?: string,
   aspectRatio: string = '1:1',
   styleIndex?: number,
+  adBrief?: ShopeeAdBrief,
+  signal?: AbortSignal,
 ): Promise<ImageGenerationResult> {
+  // ThaiAds cards also carry imageUrl and prompt history for the UI. Never send
+  // those large fields to the prompt orchestrator; it only needs this brief.
+  const safeAdBrief = adBrief ? {
+    role: adBrief.role,
+    title: adBrief.title,
+    objective: adBrief.objective,
+    facts: adBrief.facts.filter(Boolean).slice(0, 24),
+    thaiCopy: adBrief.thaiCopy.filter(Boolean).slice(0, 8),
+    includePerson: adBrief.includePerson,
+    personBrief: adBrief.personBrief,
+  } : undefined;
   // Construct prompt based on category (simplified — full prompt construction
   // happens on client side using the same logic as before)
   let prompt = '';
@@ -252,7 +298,7 @@ export async function generateProductImage(
     );
   }
 
-  const apiImages = await prepareImagesForApi(productData.images, 3);
+  const preparedImages = await prepareImagesForApi(productData.referenceImages || productData.images, 4);
   const result = await apiPost<{
     imageUrl: string;
     promptUsed: string;
@@ -261,14 +307,15 @@ export async function generateProductImage(
     thaiTextPlan?: string[];
   }>('/api/generate', {
     prompt,
-    images: apiImages,
+    ...preparedImages,
     model: imageModel,
     aspectRatio,
     category,
     style,
     customPrompt,
-    productData: { ...productData, images: apiImages || [] },
-  });
+    productData: compactProductData(productData),
+    adBrief: safeAdBrief,
+  }, signal);
 
   // Build thaiTexts for reference
   const thaiTexts = extractThaiTexts(productData, category, style);
@@ -303,18 +350,19 @@ export async function generateShopeeAdImage(
     'Thai high-information ecommerce design: clear product hierarchy, professional callout areas, crisp commercial lighting, and a clean mobile-safe central composition.',
     `Confirmed facts only: ${facts || 'Use only visible product details.'}`,
     thaiCopy ? `Text to be added later as editable Thai overlay (do not attempt to render it inside the generated image): ${thaiCopy}. Leave intentional clean overlay zones instead.` : '',
+    'All visible labels, callouts, captions, and marketing copy must be Thai only. Never generate English marketing copy, Latin placeholders, or mixed-language text. If Thai text cannot be rendered accurately, leave the area clean and text-free rather than inventing or garbling text.',
     brief.includePerson ? `Include an adult Thai or Asian person using the exact product naturally. ${brief.personBrief || 'The product must remain large and clearly visible in the foreground.'}` : 'No people unless required by the image role.',
     'Preserve product identity exactly: shape, color, materials, labels, proportions, included pieces. Never invent measurements, certifications, prices, promotions, reviews, accessories, variants, or performance claims.',
   ].filter(Boolean).join('\n\n');
 
-  const apiImages = await prepareImagesForApi(productData.images, 3);
+  const preparedImages = await prepareImagesForApi(productData.referenceImages || productData.images, 4);
   const result = await apiPost<{ imageUrl: string; promptUsed: string; model: string; thaiTextPlan?: string[] }>('/api/generate', {
     prompt,
-    images: apiImages,
+    ...preparedImages,
     model: imageModel,
     aspectRatio: '1:1',
     category: 'SHOPEE_THAI_AD',
-    productData: { ...productData, images: apiImages || [] },
+    productData: compactProductData(productData),
     adBrief: brief,
   });
 
@@ -335,10 +383,10 @@ export async function summarizeProductDescription(
   images?: string[],
   summaryLength: 'short' | 'medium' | 'long' = 'medium',
 ): Promise<string> {
-  const apiImages = await prepareImagesForApi(images, 3);
+  const preparedImages = await prepareImagesForApi(images, 3);
   const result = await apiPost<{ summary: string }>('/api/summarize', {
     currentDesc,
-    images: apiImages,
+    ...preparedImages,
     summaryLength,
   });
   return result.summary;
@@ -394,10 +442,27 @@ function buildCategoryPrompt(
   category: ImageCategory,
   productData: ProductData,
   style: string,
+  styleIndex?: number,
 ): string {
   switch (category) {
-    case ImageCategory.COVER:
+    case ImageCategory.COVER: {
+      if (['brand-ambassador', 'brand-ambassador-female', 'brand-ambassador-male'].includes(style)) {
+        const presenter = style === 'brand-ambassador-male'
+          ? 'one friendly, credible adult Thai or Asian man'
+          : style === 'brand-ambassador-female'
+            ? 'one friendly, credible adult Thai or Asian woman'
+            : 'one friendly, credible Thai or Asian adult presenter';
+        const variations = [
+          'Presenter on the right, product large in the lower-left foreground, headline in the upper-left.',
+          'Presenter on the left gesturing naturally toward the product on the right, headline in the upper-right.',
+          'Three-quarter product close-up in the foreground with the presenter softly behind it, headline in the top safe area.',
+          'Presenter actively demonstrating the product in a relevant Thai lifestyle setting, product still larger than the presenter, headline in a clean upper zone.',
+        ];
+        const variation = variations[((styleIndex || 1) - 1) % variations.length];
+        return `Thai Marketplace Brand Ambassador product cover for "${productData.name}". Use exactly ${presenter} who naturally holds, uses, or introduces the exact reference product. The product must be the main purchase object: large, sharp, unobstructed, and faithful to the reference in shape, logo, colour, materials, proportions, labels, and included pieces. Render exactly one bold Thai selling hook of 2–6 words plus one smaller Thai supporting line using only confirmed product information. No paragraph, bullet list, fake price, fake discount, badge wall, border, rounded frame, side panel, or platform UI. ${variation} On every regeneration change the pose, camera angle, composition, hook placement, and relevant props, while preserving the same product identity, credible brand-ambassador character, and campaign mood.`;
+      }
       return `High-impact commercial E-Commerce COVER image (ภาพปกสินค้า) for "${productData.name}". Product Description: ${productData.description}. Visual Style: ${style}. Product is large and unmistakable in the foreground. All headlines, price tags, and promotional badges MUST be in THAI LANGUAGE ONLY (ภาษาไทยเท่านั้น). Professional studio lighting, sharp product details.`;
+    }
     case ImageCategory.INFOGRAPHIC:
       return `Product infographic for "${productData.name}". ${productData.features?.join(' | ') || ''}. ALL TEXT CALLOUTS AND HEADLINES MUST BE IN THAI LANGUAGE ONLY (ภาษาไทยเท่านั้น). Clean flat design.`;
     case ImageCategory.CLOSE_UP:

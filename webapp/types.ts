@@ -26,7 +26,33 @@ export interface ProductData {
   name: string;
   description: string;
   images: string[];
+  /** Optional semantic reference order for multimodal generation (product, package, logo). */
+  referenceImages?: string[];
   features: string[];
+  price?: ProductPrice;
+  variantGroups?: ProductVariantGroup[];
+}
+
+export interface ProductPrice {
+  currency?: string;
+  current?: number;
+  min?: number;
+  max?: number;
+  original?: number;
+  display?: string;
+}
+
+export interface ProductVariantOption {
+  id: string;
+  label: string;
+  price?: ProductPrice;
+  stock?: number;
+}
+
+export interface ProductVariantGroup {
+  id: string;
+  name: string;
+  options: ProductVariantOption[];
 }
 
 export interface GeneratedImage {
@@ -38,6 +64,10 @@ export interface GeneratedImage {
   thaiTexts?: string[];    // ข้อความภาษาไทยที่ควรปรากฏในภาพ (สำหรับอ้างอิงแก้ไขใน Photoshop)
   promptUsed?: string;     // prompt ที่ใช้สร้างภาพจริง
   modelUsed?: string;      // โมเดลจริงที่ backend ใช้ หลัง fallback
+  variantLabel?: string;   // ตัวเลือกสินค้า สำหรับภาพที่สร้างแยกรายตัวเลือก
+  visualStyle?: string;    // รูปแบบภาพที่เลือกเฉพาะการ์ด
+  originalUrl?: string;    // ภาพ AI เดิม ก่อนสร้างแผนภูมิเทียบสเกลแบบ manual
+  isManualScale?: boolean; // ผลลัพธ์นี้สร้างจาก Manual Scale Canvas ไม่ใช่การเดาของ AI
   error?: string;          // ข้อความแสดงข้อผิดพลาดถ้ามี
 }
 
