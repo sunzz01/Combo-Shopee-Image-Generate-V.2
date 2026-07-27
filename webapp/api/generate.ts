@@ -6,7 +6,8 @@
  *   2) Imagen Product Recontext places the same product into the generated scene.
  */
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getVertexAIForLocation, getVertexAccessToken, getVertexEnvironment } from './_lib/vertex.js';
+import { GoogleGenAI, Modality } from '@google/genai';
+import { getServiceAccountCredentials, getVertexAIForLocation, getVertexAccessToken, getVertexEnvironment } from './_lib/vertex.js';
 import { requireFirebaseUser } from './_lib/firebaseAdmin.js';
 
 const RATIO_DESCRIPTIONS: Record<string, string> = {
@@ -39,12 +40,21 @@ function buildProductContext(productData: any) {
   const features = Array.isArray(productData.features)
     ? productData.features.filter(Boolean).map(String).slice(0, 8)
     : [];
+  const price = productData.price?.display || (productData.price?.current ? `฿${Number(productData.price.current).toLocaleString('th-TH')}` : '');
+  const variants = Array.isArray(productData.variantGroups)
+    ? productData.variantGroups.slice(0, 3).map((group: any) => {
+      const options = Array.isArray(group?.options) ? group.options.slice(0, 20) : [];
+      return `${String(group?.name || 'Option')}: ${options.map((option: any) => `${String(option?.label || '')}${option?.price?.display ? ` (${option.price.display})` : ''}`).filter(Boolean).join(', ')}`;
+    }).filter(Boolean)
+    : [];
 
   return [
     'PRODUCT CONTEXT:',
     name ? `- Product name: ${name}` : '',
     description ? `- Description: ${description}` : '',
     features.length ? `- Key features: ${features.join(' | ')}` : '',
+    price ? `- Confirmed selling price: ${price}` : '',
+    variants.length ? `- Confirmed variants: ${variants.join(' | ')}` : '',
   ].filter(Boolean).join('\n');
 }
 
@@ -107,6 +117,29 @@ function isImagenTextModel(model?: string) {
   ].includes(model || '');
 }
 
+const ENTERPRISE_GEMINI_IMAGE_MODELS = new Set([
+  'gemini-3.1-flash-image',
+  // Keep saved selections from earlier builds working, but send them to the
+  // GA model. The preview name was retired on 17 July 2026.
+  'gemini-3.1-flash-image-preview',
+  'gemini-2.5-flash-image',
+  'gemini-3-pro-image-preview',
+  'gemini-3-pro-image',
+]);
+
+function getEnterpriseGeminiImageModel(model: string) {
+  if (model === 'gemini-3.1-flash-image-preview') return 'gemini-3.1-flash-image';
+  if (model === 'gemini-3-pro-image-preview') return 'gemini-3-pro-image';
+  return model;
+}
+
+function getGeminiAspectRatio(aspectRatio: string) {
+  const supported = new Set(['1:1', '2:3', '3:2', '3:4', '4:3', '9:16', '16:9', '21:9']);
+  if (supported.has(aspectRatio)) return aspectRatio;
+  // Gemini Image does not expose 4:5. Keep the closest portrait composition.
+  return aspectRatio === '4:5' ? '3:4' : '1:1';
+}
+
 function isUnavailableRecontextModel(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return /publisher model|not found|does not have access|unsupported model/i.test(message);
@@ -146,8 +179,9 @@ Goal:
 - Use the existing legacy prompt as creative direction, not as a final prompt.
 - Produce a concise Imagen Product Recontext prompt that keeps the exact same product but changes the scene/background.
 - Preserve product identity: shape, color, material, logo/label placement, visible accessories, and proportions.
-- The final prompt may include Thai text direction if the legacy prompt asks for Thai marketing text, but keep text concise and readable.
+- CRITICAL LANGUAGE RULE: All text, banners, headlines, badges, callouts, size labels, and promotional text rendered inside the generated image MUST BE IN THAI LANGUAGE ONLY (ภาษาไทยเท่านั้น). Do NOT generate English text, pseudo-Latin, or gibberish text unless the confirmed product brand name itself is explicitly in English.
 - Avoid overloading the image with many badges, review cards, tiny captions, or dense text.
+- Prices, variants, dimensions, and product claims are permitted only when present in PRODUCT CONTEXT. If supplied Thai copy includes a confirmed price or variant, reserve a clean editable overlay zone; do not fabricate alternative values.
 - Aspect ratio target: ${args.aspectRatio} (${args.ratioDesc}).
 
 ${args.productContext}
@@ -305,6 +339,65 @@ async function generateImagen4TextImage(args: {
   };
 }
 
+/**
+ * Generates or edits an image through the current Google Gen AI SDK. This is
+ * intentionally separate from the legacy Vertex SDK used by the prompt
+ * orchestrator: Gemini 3.1 Flash Image is available on the global Enterprise
+ * Agent Platform endpoint and supports image input/output in one request.
+ */
+async function generateEnterpriseGeminiImage(args: {
+  modelName: string;
+  prompt: string;
+  imageParts: InlineImagePart[];
+  aspectRatio: string;
+}) {
+  const { projectId } = getVertexEnvironment();
+  const modelName = getEnterpriseGeminiImageModel(args.modelName);
+  const ai = new GoogleGenAI({
+    enterprise: true,
+    project: projectId,
+    location: 'global',
+    apiVersion: 'v1',
+    googleAuthOptions: {
+      credentials: getServiceAccountCredentials(),
+    },
+  });
+
+  const response = await ai.models.generateContent({
+    model: modelName,
+    contents: [{
+      role: 'user',
+      parts: [
+        ...args.imageParts,
+        { text: args.prompt },
+      ],
+    }],
+    config: {
+      responseModalities: [Modality.IMAGE, Modality.TEXT],
+      imageConfig: {
+        aspectRatio: getGeminiAspectRatio(args.aspectRatio),
+        personGeneration: 'ALLOW_ADULT',
+        outputMimeType: 'image/png',
+      },
+    },
+  });
+
+  const outputPart = response.candidates
+    ?.flatMap(candidate => candidate.content?.parts || [])
+    .find(part => part.inlineData?.data);
+  const base64 = outputPart?.inlineData?.data;
+  const mimeType = outputPart?.inlineData?.mimeType || 'image/png';
+
+  if (!base64) {
+    throw new Error(`${modelName}: no image data returned`);
+  }
+
+  return {
+    imageUrl: `data:${mimeType};base64,${base64}`,
+    modelName,
+  };
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -358,9 +451,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       imageParts,
     });
 
-    const selectedModel = typeof model === 'string' ? model : 'imagen-3.0-generate-002';
+    const selectedModel = typeof model === 'string' ? model : 'gemini-3.1-flash-image';
     let generated;
-    if (isImagenTextModel(selectedModel)) {
+    if (ENTERPRISE_GEMINI_IMAGE_MODELS.has(selectedModel)) {
+      try {
+        generated = await generateEnterpriseGeminiImage({
+          modelName: selectedModel,
+          prompt: orchestrated.prompt,
+          imageParts,
+          aspectRatio,
+        });
+      } catch (error) {
+        // A deployment may not yet have the Agent Platform API / model access.
+        // Return a useful listing image and report the real fallback model to UI.
+        const fallbackModel = process.env.IMAGEN_FALLBACK_MODEL || 'imagen-3.0-generate-002';
+        console.warn(`[api/generate] ${getEnterpriseGeminiImageModel(selectedModel)} is unavailable; falling back to ${fallbackModel}.`, error);
+        generated = await generateImagen4TextImage({
+          modelName: fallbackModel,
+          prompt: orchestrated.prompt,
+          aspectRatio,
+        });
+      }
+    } else if (isImagenTextModel(selectedModel)) {
       generated = await generateImagen4TextImage({
         modelName: selectedModel,
         prompt: orchestrated.prompt,
@@ -392,9 +504,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       status: 200,
       uid: firebaseUser.uid,
       email: firebaseUser.email,
-      pipeline: isImagenTextModel(selectedModel)
-        ? 'gemini-2.5-flash->imagen'
-        : 'gemini-2.5-flash->imagen-product-recontext-or-fallback',
+      pipeline: ENTERPRISE_GEMINI_IMAGE_MODELS.has(selectedModel)
+        ? 'gemini-2.5-flash->gemini-image-or-imagen-fallback'
+        : isImagenTextModel(selectedModel)
+          ? 'gemini-2.5-flash->imagen'
+          : 'gemini-2.5-flash->imagen-product-recontext-or-fallback',
       orchestratorModel: 'gemini-2.5-flash',
       imageModel: generated.modelName,
       category,
