@@ -36,10 +36,14 @@ import {
   Wand2, // เพิ่ม icon สำหรับปุ่มสรุปข้อมูล
   ChevronUp,
   ChevronDown,
-  Edit2
+  Edit2,
+  ZoomIn,
+  ZoomOut,
+  Move,
+  Ruler
 } from 'lucide-react';
 import JSZip from 'jszip';
-import { ImageCategory, IMAGE_CATEGORIES_METADATA, ProductData, GeneratedImage } from './types';
+import { ImageCategory, IMAGE_CATEGORIES_METADATA, ProductData, GeneratedImage, ProductPrice, ProductVariantGroup } from './types';
 import { analyzeProduct, generateProductImage, summarizeProductDescription, getApiKeys } from './geminiService';
 import { useTheme } from './src/contexts/ThemeContext'; // นำเข้า hook สำหรับจัดการธีม
 import { useNotification } from './src/contexts/NotificationContext';
@@ -49,6 +53,52 @@ import { saveToDB, loadFromDB, clearDB } from './src/utils/storage'; // Persiste
 import { ImageEditorModal } from './src/components/ImageEditorModal';
 import LoginPage from './src/components/LoginPage';
 import { ShopeeAdsStudio, createThaiAdsSession, type ThaiAdsSession } from './src/components/ShopeeAdsStudio';
+import { MarketingSite } from './src/components/MarketingSite';
+import { PricingCheckoutModal } from './src/components/PricingCheckoutModal';
+import { KineticBackground } from './src/components/KineticBackground';
+import type { PlanId } from './pricing';
+
+type ResultsDensity = 'overview' | 'standard' | 'focus';
+type ScaleReferenceId = 'iphone-15' | 'iphone-15-pro' | 'hand' | 'custom';
+
+type ManualScaleDraft = {
+  variantId: string;
+  variantLabel: string;
+  widthCm: string;
+  lengthCm: string;
+  depthCm: string;
+  meshCellMm: string;
+  referenceId: ScaleReferenceId;
+  customReferenceLabel: string;
+  customReferenceWidthMm: string;
+  customReferenceHeightMm: string;
+};
+
+const RESULTS_DENSITIES: { id: ResultsDensity; label: string; description: string; gridClass: string }[] = [
+  { id: 'overview', label: 'ภาพรวม', description: '4–5 ภาพต่อแถว', gridClass: 'grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-5' },
+  { id: 'standard', label: 'ปกติ', description: '3 ภาพต่อแถว', gridClass: 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10' },
+  { id: 'focus', label: 'ใหญ่', description: '1–2 ภาพต่อแถว', gridClass: 'grid-cols-1 md:grid-cols-2 gap-10' },
+];
+
+const SCALE_REFERENCE_PRESETS: { id: ScaleReferenceId; label: string; widthMm: number; heightMm: number; isApproximate?: boolean }[] = [
+  { id: 'iphone-15', label: 'iPhone 15 (71.6 × 147.6 มม.)', widthMm: 71.6, heightMm: 147.6 },
+  { id: 'iphone-15-pro', label: 'iPhone 15 Pro (70.6 × 146.6 มม.)', widthMm: 70.6, heightMm: 146.6 },
+  { id: 'hand', label: 'มือผู้ใหญ่โดยประมาณ (85 × 175 มม.)', widthMm: 85, heightMm: 175, isApproximate: true },
+  { id: 'custom', label: 'วัตถุอ้างอิงกำหนดเอง', widthMm: 71.6, heightMm: 147.6 },
+];
+
+const createManualScaleDraft = (): ManualScaleDraft => ({
+  variantId: '',
+  variantLabel: '',
+  widthCm: '',
+  lengthCm: '',
+  depthCm: '',
+  meshCellMm: '',
+  referenceId: 'iphone-15',
+  customReferenceLabel: 'วัตถุอ้างอิง',
+  customReferenceWidthMm: '71.6',
+  customReferenceHeightMm: '147.6',
+});
 
 const STYLES = [
   {
@@ -236,22 +286,22 @@ const STYLES = [
 // โมเดล Gemini ที่ใช้สำหรับสร้างภาพ
 const GEMINI_IMAGE_MODELS = [
   {
-    id: 'product-recontext-v1',
-    name: '2-Stage Product Recontext',
+    id: 'gemini-3.1-flash-image',
+    name: 'Gemini 3.1 Flash Image',
     badge: 'Recommended',
     badgeColor: 'bg-gradient-to-r from-emerald-600 to-teal-500',
-    desc: 'Gemini 2.5 Flash วิเคราะห์สินค้าและเขียน prompt จากนั้น Imagen Product Recontext เปลี่ยนฉากโดยคงสินค้าจริง',
+    desc: 'Nano Banana 2 รุ่น GA — สร้างและแก้ภาพจากรูปสินค้าอ้างอิงโดยตรง พร้อมคงตัวตนสินค้า',
     borderColor: 'border-emerald-500',
     glowColor: 'shadow-emerald-500/40',
     textColor: 'text-emerald-400',
     iconBg: 'from-emerald-500 to-teal-400',
   },
   {
-    id: 'gemini-3.1-flash-image-preview',
-    name: 'Gemini 3.1 Flash Image Preview',
-    badge: 'Nano Banana 2',
+    id: 'product-recontext-v1',
+    name: '2-Stage Product Recontext',
+    badge: 'Fallback',
     badgeColor: 'bg-gradient-to-r from-red-500 to-orange-400',
-    desc: 'Gen ข้อความภาษาไทยไม่เพี้ยน ล่าสุด!',
+    desc: 'Gemini 2.5 Flash วางแผน prompt แล้วใช้ Imagen สร้างภาพ หากโปรเจกต์ไม่ได้สิทธิ์ Recontext จะ fallback อัตโนมัติ',
     borderColor: 'border-orange-500',
     glowColor: 'shadow-orange-500/40',
     textColor: 'text-orange-400',
@@ -325,6 +375,10 @@ const GEMINI_IMAGE_MODELS = [
   },
 ];
 
+// Migrates sessions saved before the Gemini 3.1 Flash Image preview retirement.
+const normalizeImageModelSelection = (model?: string) =>
+  model === 'gemini-3.1-flash-image-preview' ? 'gemini-3.1-flash-image' : model;
+
 // Aspect Ratio options
 const ASPECT_RATIOS = [
   { id: '1:1', label: '1:1', name: 'Square', icon: '⬛', desc: 'Shopee/Lazada Product' },
@@ -336,7 +390,7 @@ const ASPECT_RATIOS = [
 
 const App: React.FC = () => {
   const { addNotification, notifications, removeNotification } = useNotification();
-  const { user, login, register, loginWithSocial, logout, deductCredit, addCredits, isLoading: authLoading } = useAuth();
+  const { user, login, register, loginWithSocial, logout, deductCredit, addCredits, refreshBilling, isLoading: authLoading } = useAuth();
 
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [apiKeys, setApiKeys] = useState<string[]>(() => {
@@ -359,16 +413,24 @@ const App: React.FC = () => {
   const [authName, setAuthName] = useState<string>('');
   const [isSubmittingAuth, setIsSubmittingAuth] = useState<boolean>(false);
   const [showProfileDropdown, setShowProfileDropdown] = useState<boolean>(false);
+  const [publicScreen, setPublicScreen] = useState<'landing' | 'login'>('landing');
+  const [showPublicLanding, setShowPublicLanding] = useState(false);
+  const [pendingPlanId, setPendingPlanId] = useState<PlanId | undefined>();
+  const [showPricingCheckout, setShowPricingCheckout] = useState(false);
   const [studioMode, setStudioMode] = useState(false);
   const [thaiAdsSession, setThaiAdsSession] = useState<ThaiAdsSession>(createThaiAdsSession);
 
   const [productUrl, setProductUrl] = useState<string>('');
   const [productName, setProductName] = useState<string>('');
   const [productDesc, setProductDesc] = useState<string>('');
+  const [productPrice, setProductPrice] = useState<ProductPrice>({ currency: 'THB' });
+  const [variantGroups, setVariantGroups] = useState<ProductVariantGroup[]>([]);
+  const [selectedVariantOptionIds, setSelectedVariantOptionIds] = useState<string[]>([]);
+  const [cardVisualStyles, setCardVisualStyles] = useState<Record<string, string>>({});
   const [summaryLength, setSummaryLength] = useState<'short' | 'medium' | 'long'>('medium');
   const [isSavingToFolder, setIsSavingToFolder] = useState(false);
   const [selectedStyle, setSelectedStyle] = useState<string>('aliexpress');
-  const [selectedImageModel, setSelectedImageModel] = useState<string>('imagen-3.0-generate-002'); // โมเดลสำหรับสร้างภาพ
+  const [selectedImageModel, setSelectedImageModel] = useState<string>('gemini-3.1-flash-image'); // โมเดลสำหรับสร้างภาพ
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [isScrapingOnly, setIsScrapingOnly] = useState<boolean>(false);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
@@ -382,6 +444,10 @@ const App: React.FC = () => {
   const [isZipping, setIsZipping] = useState<boolean>(false);
   const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [isRestoring, setIsRestoring] = useState<boolean>(true); // Persistent state loading flag
+
+  useEffect(() => {
+    if (user && pendingPlanId) setShowPricingCheckout(true);
+  }, [user, pendingPlanId]);
 
   // State สำหรับเปิดปิด Modal Canva-like
   const [editingImageParams, setEditingImageParams] = useState<{ isScraped: boolean; index: number; url: string } | null>(null);
@@ -419,6 +485,42 @@ const App: React.FC = () => {
 
   // เพิ่ม state สำหรับ Preview Image
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [previewScale, setPreviewScale] = useState(1);
+  const [previewOffset, setPreviewOffset] = useState({ x: 0, y: 0 });
+  const [isPreviewDragging, setIsPreviewDragging] = useState(false);
+  const previewDragStart = useRef<{ pointerId: number; x: number; y: number; originX: number; originY: number } | null>(null);
+  const [resultsDensity, setResultsDensity] = useState<ResultsDensity>('standard');
+  const [isManualScaleOpen, setIsManualScaleOpen] = useState(false);
+  const [manualScaleDraft, setManualScaleDraft] = useState<ManualScaleDraft>(createManualScaleDraft);
+
+  const resetPreviewView = () => {
+    previewDragStart.current = null;
+    setIsPreviewDragging(false);
+    setPreviewScale(1);
+    setPreviewOffset({ x: 0, y: 0 });
+  };
+
+  const openPreview = (url: string) => {
+    resetPreviewView();
+    setPreviewImage(url);
+  };
+
+  const closePreview = () => {
+    setPreviewImage(null);
+    resetPreviewView();
+  };
+
+  useEffect(() => {
+    if (!previewImage) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closePreview();
+      if (event.key === '+' || event.key === '=') setPreviewScale(value => Math.min(4, value + 0.25));
+      if (event.key === '-') setPreviewScale(value => Math.max(0.5, value - 0.25));
+      if (event.key === '0') resetPreviewView();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [previewImage]);
 
   // เพิ่ม state สำหรับเลือก Style เฉพาะของ Cover Image
   const [selectedCoverStyle, setSelectedCoverStyle] = useState<string | null>(null);
@@ -489,7 +591,7 @@ const App: React.FC = () => {
       console.log("images:", event.detail?.images);
       console.log("images length:", event.detail?.images?.length);
 
-      const { productUrl, productName, productDesc, images } = event.detail || {};
+       const { productUrl, productName, productDesc, images, price, variantGroups: incomingVariantGroups } = event.detail || {};
 
       // ล้างข้อมูลเก่าทั้งหมดก่อนรับข้อมูลใหม่
       setLocalImages([]);
@@ -497,9 +599,12 @@ const App: React.FC = () => {
       setScrapedImages([]);
       setOriginalScrapedImages([]);
       setGeneratedImages([]);
-      setProductUrl('');
-      setProductName('');
-      setProductDesc('');
+       setProductUrl('');
+       setProductName('');
+       setProductDesc('');
+       setProductPrice({ currency: 'THB' });
+       setVariantGroups([]);
+       setSelectedVariantOptionIds([]);
 
       // ตั้งค่าข้อมูลใหม่
       if (productUrl) {
@@ -510,10 +615,16 @@ const App: React.FC = () => {
         console.log("Setting productName:", productName);
         setProductName(productName);
       }
-      if (productDesc) {
+       if (productDesc) {
         console.log("Setting productDesc:", productDesc);
-        setProductDesc(productDesc);
-      }
+         setProductDesc(productDesc);
+       }
+       if (price && typeof price === 'object') {
+         setProductPrice({ currency: 'THB', ...price });
+       }
+       if (Array.isArray(incomingVariantGroups)) {
+         setVariantGroups(incomingVariantGroups);
+       }
       if (images && Array.isArray(images) && images.length > 0) {
         console.log("Setting scrapedImages:", images.length, "images");
         setScrapedImages(images);
@@ -523,7 +634,8 @@ const App: React.FC = () => {
       }
 
       setStep(1);
-      alert(`รับข้อมูลจาก Gimi Shopee X เรียบร้อยแล้ว!\n\nชื่อสินค้า: ${productName || 'ไม่มี'}\nจำนวนรูป: ${images?.length || 0} รูป`);
+       const variantCount = Array.isArray(incomingVariantGroups) ? incomingVariantGroups.reduce((total, group) => total + (group.options?.length || 0), 0) : 0;
+       alert(`รับข้อมูลจาก Gimi Shopee X เรียบร้อยแล้ว!\n\nชื่อสินค้า: ${productName || 'ไม่มี'}\nราคา: ${price?.display || 'ไม่มี'}\nตัวเลือก: ${variantCount} รายการ\nรูป: ${images?.length || 0} รูป`);
     };
 
     // SECURITY: Listen for generic event name from extension (replaces old 'SHOPEE_X_DATA_TRANSFER')
@@ -545,9 +657,15 @@ const App: React.FC = () => {
       try {
         const savedState = await loadFromDB<any>('appState');
         if (savedState) {
-          if (savedState.productUrl) setProductUrl(savedState.productUrl);
-          if (savedState.productName) setProductName(savedState.productName);
-          if (savedState.productDesc) setProductDesc(savedState.productDesc);
+           if (savedState.productUrl) setProductUrl(savedState.productUrl);
+           if (savedState.productName) setProductName(savedState.productName);
+           if (savedState.productDesc) setProductDesc(savedState.productDesc);
+           if (savedState.productPrice) setProductPrice({ currency: 'THB', ...savedState.productPrice });
+           if (Array.isArray(savedState.variantGroups)) setVariantGroups(savedState.variantGroups);
+           if (Array.isArray(savedState.selectedVariantOptionIds)) setSelectedVariantOptionIds(savedState.selectedVariantOptionIds);
+           if (savedState.cardVisualStyles) setCardVisualStyles(savedState.cardVisualStyles);
+           if (savedState.resultsDensity === 'overview' || savedState.resultsDensity === 'standard' || savedState.resultsDensity === 'focus') setResultsDensity(savedState.resultsDensity);
+           if (savedState.manualScaleDraft && typeof savedState.manualScaleDraft === 'object') setManualScaleDraft(previous => ({ ...previous, ...savedState.manualScaleDraft }));
           if (savedState.scrapedImages) {
             setScrapedImages(savedState.scrapedImages);
             setOriginalScrapedImages(savedState.scrapedImages);
@@ -558,7 +676,7 @@ const App: React.FC = () => {
           }
           if (savedState.generatedImages) setGeneratedImages(savedState.generatedImages);
           if (savedState.selectedStyle) setSelectedStyle(savedState.selectedStyle);
-          if (savedState.selectedImageModel) setSelectedImageModel(savedState.selectedImageModel);
+          if (savedState.selectedImageModel) setSelectedImageModel(normalizeImageModelSelection(savedState.selectedImageModel));
           if (savedState.step) setStep(savedState.step);
           if (savedState.selectedCategories) setSelectedCategories(new Set(savedState.selectedCategories));
           if (savedState.thaiAdsSession) {
@@ -587,9 +705,15 @@ const App: React.FC = () => {
     if (isRestoring) return; // Don't save while we are still loading
 
     const stateToSave = {
-      productUrl,
-      productName,
-      productDesc,
+       productUrl,
+       productName,
+       productDesc,
+       productPrice,
+       variantGroups,
+       selectedVariantOptionIds,
+       cardVisualStyles,
+       resultsDensity,
+       manualScaleDraft,
       scrapedImages,
       localImages,
       generatedImages,
@@ -606,6 +730,12 @@ const App: React.FC = () => {
     productUrl,
     productName,
     productDesc,
+    productPrice,
+    variantGroups,
+    selectedVariantOptionIds,
+    cardVisualStyles,
+    resultsDensity,
+    manualScaleDraft,
     scrapedImages,
     localImages,
     generatedImages,
@@ -756,6 +886,299 @@ const App: React.FC = () => {
     }
   };
 
+  const getPriceDisplay = (price: ProductPrice = productPrice) => {
+    if (price.display) return price.display;
+    const min = price.min ?? price.current;
+    const max = price.max ?? price.current;
+    if (min === undefined) return '';
+    const format = (value: number) => `฿${value.toLocaleString('th-TH', { maximumFractionDigits: 2 })}`;
+    return min === max || max === undefined ? format(min) : `${format(min)} - ${format(max)}`;
+  };
+
+  const updateProductPrice = (field: 'min' | 'max' | 'current' | 'original', value: string) => {
+    const numeric = value.trim() === '' ? undefined : Number(value.replace(/,/g, ''));
+    setProductPrice(previous => {
+      const next = { ...previous, currency: previous.currency || 'THB', [field]: Number.isFinite(numeric) ? numeric : undefined };
+      return { ...next, display: getPriceDisplay({ ...next, display: '' }) };
+    });
+  };
+
+  const buildCurrentProductData = (images: string[], variantLabel?: string): ProductData => {
+    const optionFacts = variantGroups.flatMap(group => group.options.slice(0, 12).map(option => `${group.name}: ${option.label}${option.price?.display ? ` (${option.price.display})` : ''}`));
+    const description = [
+      productDesc || 'ไม่มีรายละเอียด',
+      getPriceDisplay() ? `ราคาที่ยืนยันแล้ว: ${getPriceDisplay()}` : '',
+      variantLabel ? `ตัวเลือกที่ต้องสร้างภาพนี้: ${variantLabel}` : '',
+    ].filter(Boolean).join('\n');
+    return {
+      name: variantLabel ? `${productName || 'สินค้าใหม่'} — ${variantLabel}` : productName || 'สินค้าใหม่',
+      description,
+      images,
+      features: [...productDesc.split('\n').map(line => line.replace(/^[-*•\s]+/, '').trim()).filter(line => line.length > 2).slice(0, 8), ...optionFacts].slice(0, 12),
+      price: productPrice,
+      variantGroups,
+    };
+  };
+
+  const toggleVariantOption = (optionId: string) => {
+    setSelectedVariantOptionIds(previous => previous.includes(optionId)
+      ? previous.filter(id => id !== optionId)
+      : [...previous, optionId]);
+  };
+
+  const updateVariantOption = (groupId: string, optionId: string, patch: Record<string, unknown>) => {
+    setVariantGroups(previous => previous.map(group => group.id !== groupId ? group : {
+      ...group,
+      options: group.options.map(option => option.id === optionId ? { ...option, ...patch } : option),
+    }));
+  };
+
+  const addVariantOption = (groupId: string) => {
+    setVariantGroups(previous => previous.map(group => group.id !== groupId ? group : {
+      ...group,
+      options: [...group.options, { id: `${group.id}-${Date.now()}`, label: 'ตัวเลือกใหม่' }],
+    }));
+  };
+
+  const addVariantGroup = () => {
+    const id = `manual-group-${Date.now()}`;
+    setVariantGroups(previous => [...previous, {
+      id,
+      name: 'ตัวเลือกสินค้า',
+      options: [{ id: `${id}-option-1`, label: 'ตัวเลือกใหม่' }],
+    }]);
+  };
+
+  const openManualScaleCorrection = () => {
+    const firstOption = variantGroups.flatMap(group => group.options.map(option => ({
+      id: option.id,
+      label: `${group.name}: ${option.label}`,
+    })))[0];
+    setManualScaleDraft(previous => ({
+      ...previous,
+      variantId: previous.variantId || firstOption?.id || '',
+      variantLabel: previous.variantLabel || firstOption?.label || productName || 'สินค้า',
+    }));
+    setIsManualScaleOpen(true);
+  };
+
+  const restoreOriginalSizeChart = () => {
+    setGeneratedImages(previous => previous.map(image => (
+      image.category === ImageCategory.SIZE_CHART && !image.variantLabel && image.isManualScale && image.originalUrl
+        ? { ...image, url: image.originalUrl, originalUrl: undefined, isManualScale: false, modelUsed: 'AI Size Chart (restored)' }
+        : image
+    )));
+    addNotification('success', 'กลับสู่ภาพ AI แล้ว', 'คืนภาพ Size Chart ก่อนแก้สเกลเรียบร้อย');
+  };
+
+  const createManualScaleChart = () => {
+    const toNumber = (value: string) => Number(value.replace(/,/g, '').trim());
+    const widthCm = toNumber(manualScaleDraft.widthCm);
+    const lengthCm = toNumber(manualScaleDraft.lengthCm);
+    const depthCm = manualScaleDraft.depthCm.trim() ? toNumber(manualScaleDraft.depthCm) : undefined;
+    const meshCellMm = manualScaleDraft.meshCellMm.trim() ? toNumber(manualScaleDraft.meshCellMm) : undefined;
+    const preset = SCALE_REFERENCE_PRESETS.find(reference => reference.id === manualScaleDraft.referenceId) || SCALE_REFERENCE_PRESETS[0];
+    const referenceWidthMm = preset.id === 'custom' ? toNumber(manualScaleDraft.customReferenceWidthMm) : preset.widthMm;
+    const referenceHeightMm = preset.id === 'custom' ? toNumber(manualScaleDraft.customReferenceHeightMm) : preset.heightMm;
+
+    if (!Number.isFinite(widthCm) || widthCm <= 0 || !Number.isFinite(lengthCm) || lengthCm <= 0) {
+      addNotification('error', 'กรอกขนาดจริงก่อน', 'ระบุกว้างและยาวของสินค้าหน่วยเซนติเมตรเพื่อคำนวณสเกล');
+      return;
+    }
+    if (!Number.isFinite(referenceWidthMm) || referenceWidthMm <= 0 || !Number.isFinite(referenceHeightMm) || referenceHeightMm <= 0) {
+      addNotification('error', 'ขนาดวัตถุอ้างอิงไม่ถูกต้อง', 'กรอกกว้างและสูงของวัตถุอ้างอิงเป็นมิลลิเมตร');
+      return;
+    }
+    if (meshCellMm !== undefined && (!Number.isFinite(meshCellMm) || meshCellMm <= 0)) {
+      addNotification('error', 'ขนาดช่องตะแกรงไม่ถูกต้อง', 'กรอกขนาดช่องตะแกรงเป็นมิลลิเมตร หรือเว้นว่างไว้');
+      return;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 1600;
+    canvas.height = 1600;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const roundedRect = (x: number, y: number, width: number, height: number, radius: number) => {
+      const r = Math.min(radius, width / 2, height / 2);
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + width, y, x + width, y + height, r);
+      ctx.arcTo(x + width, y + height, x, y + height, r);
+      ctx.arcTo(x, y + height, x, y, r);
+      ctx.arcTo(x, y, x + width, y, r);
+      ctx.closePath();
+    };
+    const drawArrow = (x1: number, y1: number, x2: number, y2: number, label: string, labelX: number, labelY: number) => {
+      const angle = Math.atan2(y2 - y1, x2 - x1);
+      const arrow = 12;
+      ctx.strokeStyle = '#ea580c';
+      ctx.fillStyle = '#9a3412';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      [[x1, y1, angle + Math.PI], [x2, y2, angle]].forEach(([x, y, direction]) => {
+        ctx.beginPath();
+        ctx.moveTo(x as number, y as number);
+        ctx.lineTo((x as number) - arrow * Math.cos((direction as number) - .45), (y as number) - arrow * Math.sin((direction as number) - .45));
+        ctx.lineTo((x as number) - arrow * Math.cos((direction as number) + .45), (y as number) - arrow * Math.sin((direction as number) + .45));
+        ctx.closePath();
+        ctx.fill();
+      });
+      ctx.font = '700 29px "Noto Sans Thai", Tahoma, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(label, labelX, labelY);
+    };
+    const format = (value: number) => value.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = 'rgba(148, 163, 184, .14)';
+    ctx.lineWidth = 1;
+    for (let position = 0; position <= 1600; position += 50) {
+      ctx.beginPath(); ctx.moveTo(position, 0); ctx.lineTo(position, 1600); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, position); ctx.lineTo(1600, position); ctx.stroke();
+    }
+
+    const productWidthMm = widthCm * 10;
+    const productLengthMm = lengthCm * 10;
+    const visualHeight = 760;
+    const visualWidth = 1250;
+    const gapMm = 65;
+    const pixelsPerMm = Math.min(visualHeight / Math.max(productLengthMm, referenceHeightMm), visualWidth / (productWidthMm + referenceWidthMm + gapMm));
+    const productWidthPx = productWidthMm * pixelsPerMm;
+    const productLengthPx = productLengthMm * pixelsPerMm;
+    const referenceWidthPx = referenceWidthMm * pixelsPerMm;
+    const referenceHeightPx = referenceHeightMm * pixelsPerMm;
+    const allWidthPx = productWidthPx + referenceWidthPx + gapMm * pixelsPerMm;
+    const productX = (canvas.width - allWidthPx) / 2;
+    const productY = 270 + (visualHeight - productLengthPx) / 2;
+    const referenceX = productX + productWidthPx + gapMm * pixelsPerMm;
+    const referenceY = 270 + (visualHeight - referenceHeightPx) / 2;
+    const productLabel = manualScaleDraft.variantLabel.trim() || productName || 'สินค้า';
+    const referenceLabel = preset.id === 'custom'
+      ? manualScaleDraft.customReferenceLabel.trim() || 'วัตถุอ้างอิง'
+      : preset.label.split(' (')[0];
+
+    ctx.fillStyle = '#0f172a';
+    ctx.font = '800 52px "Noto Sans Thai", Tahoma, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('เทียบสเกลตามขนาดจริง', 110, 105);
+    ctx.fillStyle = '#64748b';
+    ctx.font = '600 27px "Noto Sans Thai", Tahoma, sans-serif';
+    ctx.fillText(`${productLabel}  •  สเกลคำนวณจากข้อมูลที่กรอก ไม่ใช่การเดาของ AI`, 110, 150);
+
+    roundedRect(productX, productY, productWidthPx, productLengthPx, 18);
+    ctx.fillStyle = '#fdba74';
+    ctx.fill();
+    ctx.strokeStyle = '#c2410c';
+    ctx.lineWidth = 6;
+    ctx.stroke();
+    if (meshCellMm !== undefined) {
+      const cellPx = meshCellMm * pixelsPerMm;
+      const columnCount = Math.floor(productWidthPx / cellPx);
+      const rowCount = Math.floor(productLengthPx / cellPx);
+      const skip = Math.max(1, Math.ceil(Math.max(columnCount, rowCount) / 65));
+      ctx.strokeStyle = 'rgba(124, 45, 18, .6)';
+      ctx.lineWidth = Math.max(1, Math.min(3, cellPx * .09));
+      for (let column = 1; column <= columnCount; column += skip) {
+        const x = productX + column * cellPx;
+        ctx.beginPath(); ctx.moveTo(x, productY); ctx.lineTo(x, productY + productLengthPx); ctx.stroke();
+      }
+      for (let row = 1; row <= rowCount; row += skip) {
+        const y = productY + row * cellPx;
+        ctx.beginPath(); ctx.moveTo(productX, y); ctx.lineTo(productX + productWidthPx, y); ctx.stroke();
+      }
+    }
+
+    if (preset.id === 'hand') {
+      ctx.fillStyle = '#d9a77c';
+      roundedRect(referenceX + referenceWidthPx * .14, referenceY + referenceHeightPx * .28, referenceWidthPx * .72, referenceHeightPx * .58, referenceWidthPx * .22);
+      ctx.fill();
+      const fingerWidth = referenceWidthPx * .13;
+      for (let finger = 0; finger < 4; finger++) {
+        roundedRect(referenceX + referenceWidthPx * (.16 + finger * .18), referenceY, fingerWidth, referenceHeightPx * (.36 - (finger === 0 || finger === 3 ? .05 : 0)), fingerWidth / 2);
+        ctx.fill();
+      }
+      roundedRect(referenceX, referenceY + referenceHeightPx * .4, referenceWidthPx * .28, referenceHeightPx * .22, fingerWidth / 2);
+      ctx.fill();
+    } else {
+      roundedRect(referenceX, referenceY, referenceWidthPx, referenceHeightPx, referenceWidthPx * .16);
+      ctx.fillStyle = '#111827';
+      ctx.fill();
+      roundedRect(referenceX + referenceWidthPx * .055, referenceY + referenceHeightPx * .055, referenceWidthPx * .89, referenceHeightPx * .89, referenceWidthPx * .12);
+      ctx.fillStyle = '#dbeafe';
+      ctx.fill();
+      ctx.fillStyle = '#111827';
+      roundedRect(referenceX + referenceWidthPx * .38, referenceY + referenceHeightPx * .07, referenceWidthPx * .24, referenceHeightPx * .024, referenceWidthPx * .02);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = '#0f172a';
+    ctx.font = '800 27px "Noto Sans Thai", Tahoma, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(productLabel, productX + productWidthPx / 2, productY - 28);
+    ctx.fillText(referenceLabel, referenceX + referenceWidthPx / 2, referenceY - 28);
+    drawArrow(productX, productY + productLengthPx + 58, productX + productWidthPx, productY + productLengthPx + 58, `กว้าง ${format(widthCm)} ซม.`, productX + productWidthPx / 2, productY + productLengthPx + 105);
+    drawArrow(productX - 56, productY, productX - 56, productY + productLengthPx, `ยาว ${format(lengthCm)} ซม.`, productX - 120, productY + productLengthPx / 2);
+
+    const scaleBarMm = productWidthMm >= 500 ? 100 : productWidthMm >= 200 ? 50 : 10;
+    const scaleBarPx = scaleBarMm * pixelsPerMm;
+    const scaleBarX = 110;
+    const scaleBarY = 1360;
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.moveTo(scaleBarX, scaleBarY); ctx.lineTo(scaleBarX + scaleBarPx, scaleBarY); ctx.stroke();
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(scaleBarX, scaleBarY - 16); ctx.lineTo(scaleBarX, scaleBarY + 16); ctx.moveTo(scaleBarX + scaleBarPx, scaleBarY - 16); ctx.lineTo(scaleBarX + scaleBarPx, scaleBarY + 16); ctx.stroke();
+    ctx.font = '700 24px "Noto Sans Thai", Tahoma, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#334155';
+    ctx.fillText(`${scaleBarMm} มม.`, scaleBarX, scaleBarY + 48);
+    const dimensionsText = [`${format(widthCm)} × ${format(lengthCm)} ซม.`, depthCm !== undefined && Number.isFinite(depthCm) ? `ลึก ${format(depthCm)} ซม.` : '', meshCellMm !== undefined ? `ช่องตะแกรง ${format(meshCellMm)} มม.` : ''].filter(Boolean).join('  •  ');
+    ctx.font = '800 34px "Noto Sans Thai", Tahoma, sans-serif';
+    ctx.fillStyle = '#0f172a';
+    ctx.fillText(dimensionsText, 110, 1470);
+    ctx.font = '600 22px "Noto Sans Thai", Tahoma, sans-serif';
+    ctx.fillStyle = '#64748b';
+    ctx.fillText(preset.isApproximate ? 'หมายเหตุ: มือผู้ใหญ่ใช้เพื่อให้เห็นภาพโดยประมาณเท่านั้น' : `Reference: ${referenceLabel} ${format(referenceWidthMm)} × ${format(referenceHeightMm)} มม.`, 110, 1520);
+
+    const imageUrl = canvas.toDataURL('image/png');
+    const manualPrompt = `Manual Scale Canvas — ${productLabel}; exact footprint ${format(widthCm)} × ${format(lengthCm)} cm; reference ${referenceLabel} ${format(referenceWidthMm)} × ${format(referenceHeightMm)} mm.`;
+    const thaiTexts = [productLabel, `ขนาดจริง ${format(widthCm)} × ${format(lengthCm)} ซม.`, depthCm !== undefined && Number.isFinite(depthCm) ? `ลึก ${format(depthCm)} ซม.` : '', meshCellMm !== undefined ? `ช่องตะแกรง ${format(meshCellMm)} มม.` : ''].filter(Boolean);
+    setGeneratedImages(previous => {
+      const current = previous.find(image => image.category === ImageCategory.SIZE_CHART && !image.variantLabel);
+      if (!current) return [...previous, {
+        id: `manual-size-${Date.now()}`,
+        category: ImageCategory.SIZE_CHART,
+        url: imageUrl,
+        prompt: manualPrompt,
+        status: 'completed',
+        thaiTexts,
+        promptUsed: manualPrompt,
+        modelUsed: 'Manual Scale Canvas (exact ratio)',
+        isManualScale: true,
+      }];
+      return previous.map(image => image.id === current.id ? {
+        ...image,
+        url: imageUrl,
+        status: 'completed',
+        thaiTexts,
+        promptUsed: manualPrompt,
+        modelUsed: 'Manual Scale Canvas (exact ratio)',
+        originalUrl: image.isManualScale ? image.originalUrl : image.url,
+        isManualScale: true,
+        error: undefined,
+      } : image);
+    });
+    setIsManualScaleOpen(false);
+    setStep(3);
+    openPreview(imageUrl);
+    addNotification('success', 'สร้าง Size Chart ตามสเกลจริงแล้ว', 'คำนวณอัตราส่วนจากมิติที่กรอกและวัตถุอ้างอิง โดยไม่ใช้ AI เดาขนาด');
+  };
+
   const sendToThaiAds = async () => {
     const sourceImages = [...localImages, ...scrapedImages];
     if (!sourceImages.length) {
@@ -776,13 +1199,17 @@ const App: React.FC = () => {
       .map(line => line.replace(/^[-*•\s]+/, '').trim())
       .filter(line => line.length > 2)
       .slice(0, 8);
+    const priceFact = getPriceDisplay() ? `ราคาที่ผู้ขายยืนยัน: ${getPriceDisplay()}` : '';
+    const variantFacts = variantGroups.flatMap(group => group.options.slice(0, 12).map(option => `${group.name}: ${option.label}${option.price?.display ? ` ${option.price.display}` : ''}`));
     setThaiAdsSession({
       ...createThaiAdsSession(),
       assets: { product: images, package: [], logo: [] },
       name: productName || 'สินค้าใหม่',
       details: productDesc,
-      factsText: facts.join('\n'),
-      notice: `รับข้อมูลสินค้าและรูปอ้างอิงจากหน้า Analyze แล้ว (${images.length} รูป)`,
+      factsText: [priceFact, ...facts, ...variantFacts].filter(Boolean).join('\n'),
+      price: productPrice,
+      variantGroups,
+      notice: `รับข้อมูลสินค้า ราคา และตัวเลือกจากหน้า Analyze แล้ว (${images.length} รูป)`,
     });
     setStudioMode(true);
     addNotification('success', 'ส่งไป Thai Ads แล้ว', `พร้อมสร้างภาพจากรูปอ้างอิง ${images.length} รูป`);
@@ -955,18 +1382,13 @@ const App: React.FC = () => {
       return;
     }
 
-    const productData: ProductData = {
-      name: productName || "สินค้าใหม่",
-      description: productDesc || "ไม่มีรายละเอียด",
-      images: validImages,
-      features: ["คุณภาพพรีเมียม", "ทนทาน", "ดีไซน์ทันสมัย"]
-    };
+    const productData = buildCurrentProductData(validImages);
 
     addNotification('info', 'เริ่มระบบสร้างภาพ AI', `กำลังติดต่อโมเดล ${selectedImageModel} เพื่อสร้างภาพตามหมวดหมู่...`);
 
     let successCount = 0;
     for (const cat of categoriesToGenerate) {
-      setGeneratedImages(prev => prev.map(p => p.category === cat ? { ...p, status: 'generating' } : p));
+      setGeneratedImages(prev => prev.map(p => p.category === cat && !p.variantLabel ? { ...p, status: 'generating' } : p));
       try {
         const customPromptForTutorial = cat === ImageCategory.TUTORIAL
           ? JSON.stringify(tutorialStepPrompts)
@@ -983,11 +1405,12 @@ const App: React.FC = () => {
           const val = selectedTutorialStyle[cat] || '0';
           styleIdx = parseInt(val) || undefined;
         }
-        const result = await generateProductImage(cat, productData, selectedStyle, customPromptForTutorial, selectedImageModel, imageAspectRatios[cat] || selectedAspectRatio, styleIdx);
-        setGeneratedImages(prev => prev.map(p => p.category === cat ? { ...p, url: result.imageUrl, status: 'completed', thaiTexts: result.thaiTexts, promptUsed: result.promptUsed, modelUsed: result.modelUsed } : p));
+        const styleForCard = cardVisualStyles[cat] || (cat === ImageCategory.COVER ? selectedCoverStyle || selectedStyle : selectedStyle);
+        const result = await generateProductImage(cat, productData, styleForCard, customPromptForTutorial, selectedImageModel, imageAspectRatios[cat] || selectedAspectRatio, styleIdx);
+        setGeneratedImages(prev => prev.map(p => p.category === cat && !p.variantLabel ? { ...p, url: result.imageUrl, status: 'completed', thaiTexts: result.thaiTexts, promptUsed: result.promptUsed, modelUsed: result.modelUsed, visualStyle: styleForCard } : p));
         successCount++;
       } catch (err) {
-        setGeneratedImages(prev => prev.map(p => p.category === cat ? { ...p, status: 'error', error: err instanceof Error ? err.message : 'Unknown error' } : p));
+        setGeneratedImages(prev => prev.map(p => p.category === cat && !p.variantLabel ? { ...p, status: 'error', error: err instanceof Error ? err.message : 'Unknown error' } : p));
         const errMsg = err instanceof Error ? err.message : '';
         const isQuota = errMsg.includes('429') || errMsg.includes('quota') || errMsg.includes('QUOTA') || errMsg.includes('RESOURCE_EXHAUSTED');
         const userMsg = isQuota
@@ -1016,10 +1439,10 @@ const App: React.FC = () => {
 
     // อัปเดตสถานะเป็นกำลังสร้างใหม่ (หรือสร้างภาพครั้งแรกสำหรับ Slot ว่าง)
     setGeneratedImages(prev => {
-      const exists = prev.some(img => img.category === category);
+      const exists = prev.some(img => img.category === category && !img.variantLabel);
       if (exists) {
         return prev.map(img =>
-          img.category === category ? {
+          img.category === category && !img.variantLabel ? {
             ...img,
             status: 'generating',
             error: undefined
@@ -1045,28 +1468,24 @@ const App: React.FC = () => {
       );
       const validImages = processedImages.filter(img => img !== "");
 
-      const productData: ProductData = {
-        name: productName || "สินค้าใหม่",
-        description: productDesc || "ไม่มีรายละเอียด",
-        images: validImages,
-        features: ["คุณภาพพรีเมียม", "ทนทาน", "ดีไซน์ทันสมัย"]
-      };
+      const productData = buildCurrentProductData(validImages);
 
       // สร้างภาพใหม่เฉพาะหมวดที่เลือก โดยใช้จำนวนครั้งที่พยายามสร้างใหม่เพื่อปรับ prompt
       const attemptCount = regenerationAttempts[category] || 1;
-      const styleToUse = styleOverride || selectedStyle;
+      const styleToUse = styleOverride || cardVisualStyles[category] || (category === ImageCategory.COVER ? selectedCoverStyle || selectedStyle : selectedStyle);
       const ratio = imageAspectRatios[category] || selectedAspectRatio;
       const result = await generateProductImage(category, productData, styleToUse, customPrompt, selectedImageModel, ratio, styleIndex);
 
       // อัปเดตเฉพาะภาพที่เลือก
       setGeneratedImages(prev => prev.map(img =>
-        img.category === category ? {
+        img.category === category && !img.variantLabel ? {
           ...img,
           url: result.imageUrl,
           status: 'completed',
           thaiTexts: result.thaiTexts,
           promptUsed: result.promptUsed,
-          modelUsed: result.modelUsed
+          modelUsed: result.modelUsed,
+          visualStyle: styleToUse,
         } : img
       ));
     } catch (err) {
@@ -1074,13 +1493,51 @@ const App: React.FC = () => {
       const errorMessage = err instanceof Error ? err.message : "เกิดข้อผิดพลาดในการสร้างภาพ";
 
       setGeneratedImages(prev => prev.map(img =>
-        img.category === category ? {
+        img.category === category && !img.variantLabel ? {
           ...img,
           status: 'error',
           error: errorMessage
         } : img
       ));
     }
+  };
+
+  const generateSelectedVariantImages = async () => {
+    const targets = variantGroups.flatMap(group => group.options
+      .filter(option => selectedVariantOptionIds.includes(option.id))
+      .map(option => ({ group, option, label: `${group.name}: ${option.label}${option.price?.display ? ` · ${option.price.display}` : ''}` })));
+    if (!targets.length) {
+      addNotification('warning', 'ยังไม่ได้เลือกตัวเลือกสินค้า', 'เลือกสี ขนาด หรือรุ่นอย่างน้อย 1 รายการก่อนสร้างภาพแยกตัวเลือก');
+      return;
+    }
+    const sourceImages = [...localImages, ...scrapedImages];
+    const converted = await Promise.all(sourceImages.slice(0, 3).map(imageUrlToBase64));
+    const images = converted.filter(Boolean);
+    if (!images.length) {
+      addNotification('error', 'อ่านรูปสินค้าไม่ได้', 'ต้องมีรูปสินค้าอ้างอิงก่อนสร้างภาพแยกตัวเลือก');
+      return;
+    }
+
+    setIsGenerating(true);
+    setStep(3);
+    for (const target of targets) {
+      const id = `variant-${target.option.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      setGeneratedImages(previous => [...previous, { id, category: ImageCategory.COVER, url: '', prompt: '', status: 'generating', variantLabel: target.label, visualStyle: cardVisualStyles.COVER || selectedStyle }]);
+      try {
+        const result = await generateProductImage(
+          ImageCategory.COVER,
+          buildCurrentProductData(images, target.label),
+          cardVisualStyles.COVER || selectedStyle,
+          `Create a dedicated, exact-variant product cover for "${target.label}". Clearly distinguish only this confirmed purchasable option from other variants. Leave a clean editable Thai overlay zone for the exact variant name and confirmed price.`,
+          selectedImageModel,
+          selectedAspectRatio,
+        );
+        setGeneratedImages(previous => previous.map(image => image.id === id ? { ...image, url: result.imageUrl, status: 'completed', thaiTexts: [`${target.label}`, ...result.thaiTexts], promptUsed: result.promptUsed, modelUsed: result.modelUsed } : image));
+      } catch (error) {
+        setGeneratedImages(previous => previous.map(image => image.id === id ? { ...image, status: 'error', error: error instanceof Error ? error.message : 'สร้างภาพตัวเลือกไม่สำเร็จ' } : image));
+      }
+    }
+    setIsGenerating(false);
   };
 
   // ลบอักขระที่ทำให้เกิด subfolder ใน ZIP หรือ OS
@@ -1486,6 +1943,16 @@ const App: React.FC = () => {
 
 
   const selectedStyleName = STYLES.find(s => s.id === selectedStyle)?.name || 'Available Style';
+  const pricingCheckoutModal = showPricingCheckout ? (
+    <PricingCheckoutModal
+      initialPlanId={pendingPlanId}
+      onClose={() => { setShowPricingCheckout(false); setPendingPlanId(undefined); }}
+      onPaymentConfirmed={async () => {
+        await refreshBilling();
+        addNotification('success', 'ชำระเงินสำเร็จ', 'ระบบอัปเดตเครดิตและสิทธิ์แพ็กเกจของคุณแล้ว');
+      }}
+    />
+  ) : null;
 
   // ==========================================
   // LOGIN SCREEN — Show when user is not authenticated
@@ -1493,27 +1960,58 @@ const App: React.FC = () => {
   if (!user) {
     return (
       <>
-        <LoginPage
-          onLogin={login}
-          onRegister={register}
-          onGoogleLogin={() => loginWithSocial('google')}
-          isLoading={authLoading}
+        {publicScreen === 'landing' ? (
+          <MarketingSite onOpenAuth={(planId) => { setPendingPlanId(planId); setPublicScreen('login'); }} />
+        ) : (
+          <div className="relative">
+            <button
+              onClick={() => setPublicScreen('landing')}
+              className="absolute left-4 top-4 z-20 rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-xs font-black text-slate-600 shadow-sm backdrop-blur hover:bg-white dark:border-white/10 dark:bg-slate-900/90 dark:text-slate-200"
+            >
+              ← กลับหน้าราคา
+            </button>
+            <LoginPage
+              onLogin={login}
+              onRegister={register}
+              onGoogleLogin={() => loginWithSocial('google')}
+              isLoading={authLoading}
+            />
+          </div>
+        )}
+        <NotificationSystem notifications={notifications} onRemove={removeNotification} />
+      </>
+    );
+  }
+
+  if (showPublicLanding) {
+    return (
+      <>
+        <MarketingSite
+          onOpenAuth={() => setShowPublicLanding(false)}
+          onGoToStudio={() => setShowPublicLanding(false)}
+          onSelectPlan={(planId) => {
+            setPendingPlanId(planId);
+            setShowPublicLanding(false);
+            setShowPricingCheckout(true);
+          }}
         />
+        {pricingCheckoutModal}
         <NotificationSystem notifications={notifications} onRemove={removeNotification} />
       </>
     );
   }
 
   return (
-    <div className={`min-h-screen flex flex-col ${theme === 'dark' ? 'bg-gray-900 text-white' : 'bg-[#F8FAFC] text-slate-900'}`}>
+    <div className={`min-h-screen flex flex-col relative z-0 ${theme === 'dark' ? 'bg-gray-900/90 text-white' : 'bg-[#F8FAFC]/90 text-slate-900'}`}>
+      <KineticBackground />
       <header className={`${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-slate-200'} sticky top-0 z-50 px-6 py-4 flex items-center justify-between shadow-sm`}>
         <div className="flex items-center gap-2">
-          <div className={`${theme === 'dark' ? 'bg-orange-500 hover:bg-orange-600' : 'bg-orange-500 hover:bg-orange-600'} p-2 rounded-xl cursor-pointer transition-all shadow-orange-100 shadow-lg`} onClick={() => setStep(1)}>
+          <div className={`${theme === 'dark' ? 'bg-orange-500 hover:bg-orange-600' : 'bg-orange-500 hover:bg-orange-600'} p-2 rounded-xl cursor-pointer transition-all shadow-orange-100 shadow-lg`} onClick={() => setShowPublicLanding(true)}>
             <Sparkles className="text-white w-6 h-6" />
           </div>
-          <div className="cursor-pointer group" onClick={() => setStep(1)}>
+          <div className="cursor-pointer group" onClick={() => setShowPublicLanding(true)}>
             <div className="flex items-center gap-2">
-              <h1 className="font-black text-xl tracking-tight group-hover:text-orange-500 transition-colors uppercase">Shopee Master</h1>
+              <h1 className="font-black text-xl tracking-tight group-hover:text-orange-500 transition-colors uppercase">PICSELLER</h1>
               <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${theme === 'dark' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-600 border border-emerald-200'} tracking-wider`} title="Last updated: 2026-03-11 — Security Hardening">
                 PLUS
               </span>
@@ -1523,6 +2021,12 @@ const App: React.FC = () => {
         </div>
 
         <nav className="hidden md:flex items-center gap-1 bg-slate-100 p-1.5 rounded-2xl dark:bg-gray-700">
+          <button
+            onClick={() => setShowPublicLanding(true)}
+            className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${theme === 'dark' ? 'text-gray-300 hover:bg-gray-600 hover:text-orange-400' : 'text-slate-500 hover:bg-white hover:text-orange-600'}`}
+          >
+            <Sparkles className="w-4 h-4" /> หน้าแรก
+          </button>
           {[1, 2, 3].map((s) => (
             <button
               key={s}
@@ -1543,6 +2047,13 @@ const App: React.FC = () => {
 
         {/* ส่วน User Profile + Theme Toggle + Logout */}
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => { setShowProfileDropdown(false); setShowPricingCheckout(true); }}
+            className={`hidden lg:flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-black transition-colors ${theme === 'dark' ? 'bg-orange-500/15 text-orange-300 hover:bg-orange-500/25' : 'bg-orange-50 text-orange-600 hover:bg-orange-100'}`}
+          >
+            <Zap className="w-4 h-4" />
+            แพ็กเกจ / เครดิต
+          </button>
           <button
             onClick={() => setStudioMode(true)}
             className={`md:hidden p-2 rounded-xl transition-colors ${studioMode ? 'bg-orange-500 text-white' : (theme === 'dark' ? 'bg-gray-700 text-orange-400' : 'bg-orange-50 text-orange-600')}`}
@@ -1717,6 +2228,23 @@ const App: React.FC = () => {
                     value={productName}
                     onChange={(e) => setProductName(e.target.value)}
                   />
+                </div>
+
+                <div className={`rounded-3xl border p-5 ${theme === 'dark' ? 'border-emerald-900/70 bg-emerald-950/20' : 'border-emerald-100 bg-emerald-50/60'}`}>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div><h3 className={`font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>ราคาและตัวเลือกสินค้า</h3><p className={`mt-1 text-xs ${theme === 'dark' ? 'text-emerald-200/70' : 'text-emerald-800/70'}`}>ตรวจ แก้ไข และเลือกตัวเลือกที่จะสร้างภาพแยกก่อนเริ่ม Generate</p></div>
+                    <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-emerald-700 shadow-sm">{getPriceDisplay() || 'ยังไม่ได้ระบุราคา'}</span>
+                  </div>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                    <label className="text-xs font-bold text-slate-600 dark:text-slate-300">ราคาแสดง<input value={productPrice.display || ''} onChange={event => setProductPrice(previous => ({ ...previous, currency: 'THB', display: event.target.value }))} placeholder="เช่น ฿199 หรือ ฿199 - ฿299" className="mt-1 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-emerald-500"/></label>
+                    <label className="text-xs font-bold text-slate-600 dark:text-slate-300">ราคาต่ำสุด<input type="number" min="0" value={productPrice.min ?? productPrice.current ?? ''} onChange={event => updateProductPrice('min', event.target.value)} placeholder="199" className="mt-1 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-emerald-500"/></label>
+                    <label className="text-xs font-bold text-slate-600 dark:text-slate-300">ราคาสูงสุด<input type="number" min="0" value={productPrice.max ?? ''} onChange={event => updateProductPrice('max', event.target.value)} placeholder="299 (ถ้ามีช่วงราคา)" className="mt-1 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-emerald-500"/></label>
+                  </div>
+                  <div className="mt-5 space-y-3">
+                    {variantGroups.map(group => <div key={group.id} className="rounded-2xl border border-emerald-100 bg-white/80 p-3 dark:bg-slate-900/40"><div className="mb-2 flex items-center justify-between gap-2"><input value={group.name} onChange={event => setVariantGroups(previous => previous.map(item => item.id === group.id ? { ...item, name: event.target.value } : item))} className="min-w-0 bg-transparent text-sm font-black text-slate-800 outline-none dark:text-white"/><button onClick={() => addVariantOption(group.id)} className="rounded-lg border border-emerald-200 px-2 py-1 text-[10px] font-black text-emerald-700">+ เพิ่มตัวเลือก</button></div><div className="grid gap-2 sm:grid-cols-2">{group.options.map(option => <label key={option.id} className={`flex items-center gap-2 rounded-xl border px-2 py-2 text-xs ${selectedVariantOptionIds.includes(option.id) ? 'border-orange-400 bg-orange-50' : 'border-slate-200 bg-white'}`}><input type="checkbox" checked={selectedVariantOptionIds.includes(option.id)} onChange={() => toggleVariantOption(option.id)} className="accent-orange-500"/><input value={option.label} onChange={event => updateVariantOption(group.id, option.id, { label: event.target.value })} className="min-w-0 flex-1 bg-transparent font-bold text-slate-800 outline-none"/><input type="number" min="0" value={option.price?.current ?? option.price?.min ?? ''} onChange={event => { const amount = event.target.value === '' ? undefined : Number(event.target.value); updateVariantOption(group.id, option.id, { price: amount === undefined || !Number.isFinite(amount) ? undefined : { currency: 'THB', current: amount, min: amount, max: amount, display: `฿${amount.toLocaleString('th-TH')}` } }); }} placeholder="ราคา" className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-right text-xs text-slate-800 outline-none focus:border-orange-400"/></label>)}</div></div>)}
+                    {!variantGroups.length && <div className="rounded-xl border border-dashed border-emerald-200 p-3 text-xs text-emerald-800"><p>ยังไม่พบสี ขนาด หรือรุ่นจากหน้าเดิม — คุณยังสร้างภาพปกและภาพรายละเอียดได้ตามปกติ</p><button onClick={addVariantGroup} className="mt-2 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-[10px] font-black text-emerald-700">+ เพิ่มกลุ่มตัวเลือกเอง</button></div>}
+                  </div>
+                  {variantGroups.length > 0 && <button onClick={generateSelectedVariantImages} disabled={isGenerating || selectedVariantOptionIds.length === 0} className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"><Layers className="h-4 w-4"/>สร้างภาพแยก {selectedVariantOptionIds.length || ''} ตัวเลือกที่เลือก</button>}
                 </div>
 
                 <div>
@@ -1903,7 +2431,7 @@ const App: React.FC = () => {
                 </div>
                 <div>
                   <p className={`text-sm font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>ระบบพร้อมใช้งาน</p>
-                  <p className={`text-xs font-medium ${theme === 'dark' ? 'text-slate-300' : 'text-slate-500'}`}>AI Model: Shopee Master v2.0</p>
+                  <p className={`text-xs font-medium ${theme === 'dark' ? 'text-slate-300' : 'text-slate-500'}`}>AI Model: PicSeller v2.0</p>
                 </div>
               </div>
             </aside>
@@ -2326,7 +2854,10 @@ const App: React.FC = () => {
                   </p>
                 </div>
 
-                <div className={`${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-slate-50 border-slate-100'} p-8 rounded-[2.5rem] flex flex-col gap-5 min-w-[320px] shadow-inner border`}>
+                <div className={`${theme === 'dark' ? 'bg-gray-800/90 border-gray-700' : 'bg-slate-50 border-slate-100'} p-6 sm:p-7 rounded-[2rem] flex flex-col gap-4 min-w-[320px] shadow-inner border`}>
+                  <div className={`rounded-xl px-3 py-2 text-[10px] font-mono font-bold ${theme === 'dark' ? 'bg-gray-900 text-emerald-300' : 'bg-white text-emerald-700'} border ${theme === 'dark' ? 'border-gray-700' : 'border-emerald-100'}`}>
+                    กำลังเลือกใช้: {selectedImageModel}
+                  </div>
                   <div className="flex items-center justify-between w-full text-[12px] font-black uppercase tracking-widest text-slate-500">
                     <span className="flex items-center gap-2"><Zap className="w-4 h-4 text-orange-500" /> ความคืบหน้า</span>
                     <span className={`${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{completedCount} / 9</span>
@@ -2338,22 +2869,14 @@ const App: React.FC = () => {
                     ></div>
                   </div>
                   <div className="flex gap-3 w-full mt-2">
-                    <button onClick={() => setStep(2)} className={`flex-1 px-6 py-4 ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-white border-2 border-slate-200 hover:bg-slate-50'} font-black text-xs transition-all shadow-sm active:scale-95`}>ย้อนกลับ</button>
+                    <button onClick={() => setStep(2)} className={`flex-1 rounded-[1.25rem] px-5 py-3.5 ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-white border-2 border-slate-200 hover:bg-slate-50 text-slate-700'} font-black text-xs transition-all shadow-sm active:scale-95`}>ย้อนกลับ</button>
                     <button
                       onClick={handleDownloadAll}
                       disabled={isGenerating || isZipping || completedCount === 0}
-                      className="flex-1 px-6 py-4 bg-slate-900 text-white rounded-[1.5rem] hover:bg-black font-black text-xs flex items-center justify-center gap-3 shadow-xl disabled:bg-slate-200 disabled:shadow-none transition-all active:scale-95"
+                      className="flex-[1.35] rounded-[1.25rem] px-5 py-3.5 bg-orange-500 text-white hover:bg-orange-600 font-black text-xs flex items-center justify-center gap-2.5 shadow-lg shadow-orange-500/25 disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none transition-all active:scale-95"
                     >
                       {isZipping ? <Loader2 className="animate-spin w-5 h-5" /> : <FileArchive className="w-5 h-5" />}
-                      โหลด ZIP
-                    </button>
-                    <button
-                      onClick={handleDownloadToFolder}
-                      disabled={isGenerating || isSavingToFolder || completedCount === 0}
-                      className="flex-1 px-6 py-4 bg-orange-500 text-white rounded-[1.5rem] hover:bg-orange-600 font-black text-xs flex items-center justify-center gap-3 shadow-xl disabled:bg-slate-200 disabled:shadow-none transition-all active:scale-95"
-                    >
-                      {isSavingToFolder ? <Loader2 className="animate-spin w-5 h-5" /> : <Download className="w-5 h-5" />}
-                      บันทึกลงโฟลเดอร์
+                      {isZipping ? 'กำลังเตรียมไฟล์...' : 'ดาวน์โหลดภาพ'}
                     </button>
                   </div>
                 </div>
@@ -2361,16 +2884,33 @@ const App: React.FC = () => {
             </div>
 
             {/* Strategic Grid Section Header */}
-            <div className="flex items-center gap-6 mb-10 px-4">
-              <h3 className={`text-xl font-black uppercase tracking-tighter flex items-center gap-3 ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
-                <Target className="text-orange-500 w-6 h-6" />
-                โครงสร้าง 9 ภาพเพื่อการปิดการขาย (Strategic Sequence)
-              </h3>
-              <div className={`${theme === 'dark' ? 'bg-gray-700' : 'bg-slate-200'} h-[2px] flex-1`}></div>
-              <div className="flex gap-4">
+            <div className="mb-10 flex flex-col gap-5 px-4 xl:flex-row xl:items-center">
+              <div className="flex min-w-0 items-center gap-4">
+                <Target className="h-6 w-6 shrink-0 text-orange-500" />
+                <h3 className={`text-xl font-black uppercase tracking-tighter ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+                  โครงสร้าง 9 ภาพเพื่อการปิดการขาย (Strategic Sequence)
+                </h3>
+              </div>
+              <div className={`${theme === 'dark' ? 'bg-gray-700' : 'bg-slate-200'} hidden h-[2px] flex-1 xl:block`}></div>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className={`flex items-center gap-1 rounded-2xl border p-1.5 ${theme === 'dark' ? 'border-gray-700 bg-gray-800' : 'border-slate-200 bg-white shadow-sm'}`}>
+                  {RESULTS_DENSITIES.map(option => (
+                    <button
+                      key={option.id}
+                      onClick={() => setResultsDensity(option.id)}
+                      title={option.description}
+                      className={`rounded-xl px-3 py-2 text-[10px] font-black transition-all ${resultsDensity === option.id ? 'bg-orange-500 text-white shadow-md shadow-orange-500/30' : theme === 'dark' ? 'text-gray-300 hover:bg-gray-700' : 'text-slate-500 hover:bg-slate-100'}`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                <span className={`text-[10px] font-bold ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'}`}>ปรับมุมมองภาพรวม</span>
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-2">
                 {['Hook', 'Logic', 'Emotion', 'Trust'].map(label => (
                   <div key={label} className="flex items-center gap-2">
-                    <div className={`w-3 h-3 rounded-full ${label === 'Hook' ? 'bg-red-500' : label === 'Logic' ? 'bg-blue-500' : label === 'Emotion' ? 'bg-pink-500' : 'bg-green-500'}`}></div>
+                    <div className={`h-3 w-3 rounded-full ${label === 'Hook' ? 'bg-red-500' : label === 'Logic' ? 'bg-blue-500' : label === 'Emotion' ? 'bg-pink-500' : 'bg-green-500'}`}></div>
                     <span className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'}`}>{label}</span>
                   </div>
                 ))}
@@ -2378,7 +2918,7 @@ const App: React.FC = () => {
             </div>
 
             {/* Structured 9-Image Gallery */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10 mb-20">
+            <div className={`grid ${RESULTS_DENSITIES.find(option => option.id === resultsDensity)?.gridClass || RESULTS_DENSITIES[1].gridClass} mb-20`}>
               {Object.entries(IMAGE_CATEGORIES_METADATA)
                 .sort(([, a], [, b]) => a.order - b.order)
                 .map(([catKey, meta]) => {
@@ -2387,19 +2927,29 @@ const App: React.FC = () => {
                   const isHero = meta.order === 1;
 
                   return (
-                    <div key={catKey} className={`group flex flex-col ${isHero ? 'lg:scale-105 z-10' : ''}`}>
+                    <div key={catKey} className={`group flex flex-col ${isHero && resultsDensity !== 'overview' ? 'lg:scale-105 z-10' : ''}`}>
                       <div className={`aspect-square relative rounded-[3rem] overflow-hidden border-4 transition-all duration-700 ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} ${img?.status === 'completed' ? (theme === 'dark' ? 'border-gray-700 shadow-2xl ring-gray-700' : 'border-white shadow-2xl ring-slate-100') : (theme === 'dark' ? 'border-gray-700 border-dashed bg-gray-800/50 hover:bg-gray-700 hover:border-orange-500' : 'border-slate-200 border-dashed bg-slate-50/50 hover:bg-white hover:border-orange-200')}`}>
 
                         {/* Status: Completed */}
                         {img?.status === 'completed' && (
                           <div className="w-full h-full relative animate-in fade-in duration-1000">
                             <img src={img.url} alt={meta.title} className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110" />
+                            {img.modelUsed && (
+                              <div title={img.modelUsed} className="absolute left-4 top-4 max-w-[calc(100%-5.5rem)] truncate rounded-full border border-emerald-200/40 bg-slate-950/70 px-3 py-1.5 text-[9px] font-black tracking-wide text-emerald-200 backdrop-blur-md">
+                                AI: {img.modelUsed}
+                              </div>
+                            )}
+                            {img.isManualScale && (
+                              <div className="absolute bottom-4 left-4 rounded-full border border-orange-200/40 bg-orange-500/90 px-3 py-1.5 text-[9px] font-black tracking-wide text-white shadow-lg backdrop-blur-md">
+                                <Ruler className="mr-1 inline h-3 w-3" />ล็อกสเกลจริง
+                              </div>
+                            )}
 
                             {/* Preview Button */}
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setPreviewImage(img.url);
+                                openPreview(img.url);
                               }}
                               className="absolute top-4 right-4 p-2.5 bg-black/30 hover:bg-black/50 text-white rounded-full backdrop-blur-md opacity-0 group-hover:opacity-100 transition-all z-20 hover:scale-110 active:scale-95"
                               title="ดูภาพขนาดใหญ่"
@@ -2417,7 +2967,7 @@ const App: React.FC = () => {
                                   <p className="text-white text-[10px] font-black uppercase tracking-widest mb-1">PROMPT USED</p>
                                   {!editingPrompt[catKey] ? (
                                     <>
-                                      <p className="text-white/70 text-[10px] italic line-clamp-2">"High-quality commercial render, ${selectedStyle} style, master lighting..."</p>
+                                      <p className="text-white/70 text-[10px] italic line-clamp-2">"High-quality commercial render, ${img.visualStyle || cardVisualStyles[catKey] || (catKey === 'COVER' ? selectedCoverStyle || selectedStyle : selectedStyle)} style, master lighting..."</p>
                                       <button
                                         onClick={() => startEditingPrompt(catKey)}
                                         className="mt-2 text-[9px] text-blue-300 hover:text-white font-black underline"
@@ -2450,6 +3000,18 @@ const App: React.FC = () => {
                                     </div>
                                   )}
                                 </div>
+                                {/* Visual direction is available on every result card. */}
+                                <div className="mb-2">
+                                  <label className="mb-1 block text-[9px] font-black uppercase tracking-wider text-white/80">รูปแบบภาพการ์ดนี้</label>
+                                  <select
+                                    value={cardVisualStyles[catKey] || (catKey === 'COVER' ? selectedCoverStyle || selectedStyle : selectedStyle)}
+                                    onChange={(e) => setCardVisualStyles(prev => ({ ...prev, [catKey]: e.target.value }))}
+                                    className="w-full text-[10px] p-2 rounded-xl bg-white/20 text-white border border-white/30 backdrop-blur-md font-bold"
+                                  >
+                                    {STYLES.map(style => <option key={style.id} value={style.id} className="bg-slate-800 text-white">{style.name} — {style.desc}</option>)}
+                                  </select>
+                                </div>
+
                                 {/* Cover Style Dropdown - แสดงเฉพาะ COVER */}
                                 {catKey === 'COVER' && (
                                   <div className="mb-2">
@@ -2509,7 +3071,7 @@ const App: React.FC = () => {
 
                                 {/* Size Chart Style Dropdown - แสดงเฉพาะ SIZE_CHART */}
                                 {catKey === 'SIZE_CHART' && (
-                                  <div className="mb-2">
+                                  <div className="mb-3 space-y-2">
                                     <select
                                       value={selectedSizeChartStyle[catKey] || '0'}
                                       onChange={(e) => setSelectedSizeChartStyle(prev => ({
@@ -2524,6 +3086,20 @@ const App: React.FC = () => {
                                         </option>
                                       ))}
                                     </select>
+                                    <button
+                                      onClick={(event) => { event.stopPropagation(); openManualScaleCorrection(); }}
+                                      className="flex w-full items-center justify-center gap-2 rounded-xl border border-orange-300 bg-orange-500/90 px-3 py-2 text-[10px] font-black text-white shadow-lg transition hover:bg-orange-600"
+                                    >
+                                      <Ruler className="h-3.5 w-3.5" />{img.isManualScale ? 'ปรับสเกลจริงอีกครั้ง' : 'ขนาดไม่ตรง? ปรับสเกลจริง'}
+                                    </button>
+                                    {img.isManualScale && img.originalUrl && (
+                                      <button
+                                        onClick={(event) => { event.stopPropagation(); restoreOriginalSizeChart(); }}
+                                        className="w-full rounded-xl border border-white/30 bg-white/10 px-3 py-2 text-[10px] font-black text-white transition hover:bg-white/20"
+                                      >
+                                        กลับไปใช้ภาพ AI เดิม
+                                      </button>
+                                    )}
                                   </div>
                                 )}
 
@@ -2652,7 +3228,7 @@ const App: React.FC = () => {
                                           ? (selectedLifestyle[catKey] || catKey) as ImageCategory
                                           : catKey as ImageCategory,
                                         catKey === 'TUTORIAL' ? JSON.stringify(tutorialStepPrompts) : undefined,
-                                        catKey === 'COVER' ? (selectedCoverStyle || selectedStyle) : (catKey === 'SOCIAL_PROOF' ? (selectedSocialProof[catKey] || 'unboxing-moment') : undefined),
+                                        catKey === 'COVER' ? (cardVisualStyles[catKey] || selectedCoverStyle || selectedStyle) : (catKey === 'SOCIAL_PROOF' ? (selectedSocialProof[catKey] || 'unboxing-moment') : undefined),
                                         styleIdx
                                       );
                                     }}
@@ -2701,6 +3277,17 @@ const App: React.FC = () => {
                             <div>
                               <p className={`text-sm font-black uppercase tracking-widest mb-2 ${theme === 'dark' ? 'text-white' : 'text-slate-500'}`}>โครงสร้างภาพที่ {meta.order}</p>
                               <p className={`text-[10px] font-bold leading-relaxed px-6 italic ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'}`}>พิมพ์เขียวพร้อมใช้งาน <br />คลิกเพื่อสร้างภาพทันที</p>
+                            </div>
+
+                            <div onClick={(e) => e.stopPropagation()} className="w-full max-w-xs opacity-0 group-hover:opacity-100 transition-opacity">
+                              <label className={`mb-1 block text-[9px] font-black uppercase tracking-wider ${theme === 'dark' ? 'text-white/80' : 'text-slate-600'}`}>เลือกรูปแบบภาพการ์ดนี้</label>
+                              <select
+                                value={cardVisualStyles[catKey] || (catKey === 'COVER' ? selectedCoverStyle || selectedStyle : selectedStyle)}
+                                onChange={(e) => setCardVisualStyles(prev => ({ ...prev, [catKey]: e.target.value }))}
+                                className={`w-full rounded-xl border px-3 py-2 text-[10px] font-bold outline-none ${theme === 'dark' ? 'border-gray-600 bg-gray-800 text-white' : 'border-slate-200 bg-white text-slate-700'}`}
+                              >
+                                {STYLES.map(style => <option key={style.id} value={style.id}>{style.name} — {style.desc}</option>)}
+                              </select>
                             </div>
 
                             <div className="absolute bottom-10 opacity-0 group-hover:opacity-100 transition-opacity animate-in slide-in-from-bottom-2">
@@ -2773,7 +3360,7 @@ const App: React.FC = () => {
                           <h4 className={`font-black text-lg group-hover:text-orange-600 transition-colors uppercase tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{meta.title}</h4>
                         </div>
                         <p className={`text-xs font-bold leading-relaxed line-clamp-2 h-10 italic ${theme === 'dark' ? 'text-gray-400' : 'text-slate-400'}`}>
-                          " {catKey === 'COVER' ? (STYLES.find(s => s.id === (selectedCoverStyle || selectedStyle))?.name || selectedStyleName) : meta.desc} "
+                          " {STYLES.find(s => s.id === (img?.visualStyle || cardVisualStyles[catKey] || (catKey === 'COVER' ? selectedCoverStyle || selectedStyle : selectedStyle)))?.name || meta.desc} "
                         </p>
                         <div className="mt-6 flex items-center gap-4">
                           <div className={`w-2 h-2 rounded-full ${strategy.color} shadow-sm`}></div>
@@ -2787,6 +3374,29 @@ const App: React.FC = () => {
                   );
                 })}
             </div>
+
+            {generatedImages.some(image => image.variantLabel) && (
+              <section className={`mt-12 rounded-[2.5rem] border p-6 md:p-8 ${theme === 'dark' ? 'border-emerald-900/70 bg-emerald-950/15' : 'border-emerald-100 bg-emerald-50/50'}`}>
+                <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-600">Variant Studio</p>
+                    <h3 className={`mt-1 text-xl font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>ภาพแยกตามตัวเลือกสินค้า</h3>
+                    <p className={`mt-1 text-xs ${theme === 'dark' ? 'text-emerald-200/70' : 'text-emerald-800/70'}`}>แต่ละภาพยึดชื่อตัวเลือกและราคาที่ยืนยันไว้จากหน้า Analyze</p>
+                  </div>
+                  <span className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-black text-white">{generatedImages.filter(image => image.variantLabel).length} ตัวเลือก</span>
+                </div>
+                <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {generatedImages.filter(image => image.variantLabel).map(image => (
+                    <article key={image.id} className={`overflow-hidden rounded-3xl border ${theme === 'dark' ? 'border-gray-700 bg-gray-900' : 'border-white bg-white shadow-sm'}`}>
+                      <div className={`aspect-square ${theme === 'dark' ? 'bg-gray-800' : 'bg-slate-100'}`}>
+                        {image.status === 'completed' && image.url ? <img src={image.url} alt={image.variantLabel} className="h-full w-full object-cover"/> : <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-xs text-slate-500">{image.status === 'generating' ? <Loader2 className="animate-spin text-emerald-500"/> : <ImageIcon className="text-emerald-500"/>}<span>{image.status === 'generating' ? 'กำลังสร้างภาพตัวเลือก…' : image.error || 'รอสร้างภาพ'}</span></div>}
+                      </div>
+                      <div className="p-4"><p className={`text-sm font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{image.variantLabel}</p><p className="mt-1 truncate text-[10px] font-bold text-emerald-600">{image.modelUsed ? `ใช้จริง: ${image.modelUsed}` : image.status === 'generating' ? 'กำลังส่งข้อมูลรุ่น/ตัวเลือกให้ AI' : 'รอผลลัพธ์'}</p><p className={`mt-2 text-[10px] ${theme === 'dark' ? 'text-gray-400' : 'text-slate-500'}`}>สไตล์: {STYLES.find(style => style.id === image.visualStyle)?.name || image.visualStyle || selectedStyleName}</p>{image.url && <button onClick={() => downloadSingleImage(image.url, image.variantLabel || 'variant')} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-2 text-xs font-black text-white hover:bg-emerald-700"><Download className="h-4 w-4"/>บันทึกภาพ</button>}</div>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            )}
 
             {/* Empty State Guard */}
             {generatedImages.length === 0 && !isGenerating && (
@@ -2834,18 +3444,98 @@ const App: React.FC = () => {
         </div>
       </footer>
 
+      {isManualScaleOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm" onMouseDown={() => setIsManualScaleOpen(false)}>
+          <section className={`max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-[2rem] border p-5 shadow-2xl md:p-8 ${theme === 'dark' ? 'border-slate-700 bg-slate-900 text-white' : 'border-white bg-white text-slate-900'}`} onMouseDown={event => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[.16em] text-orange-500"><Ruler className="h-4 w-4" /> Manual Scale Correction</div>
+                <h3 className="mt-2 text-2xl font-black">สร้าง Size Chart จากขนาดจริง</h3>
+                <p className={`mt-2 text-sm leading-6 ${theme === 'dark' ? 'text-slate-300' : 'text-slate-500'}`}>ระบบจะคำนวณสัดส่วนสินค้าและวัตถุอ้างอิงบน Canvas โดยตรง จึงไม่ให้ AI เดาขนาดใหม่</p>
+              </div>
+              <button onClick={() => setIsManualScaleOpen(false)} className={`rounded-xl p-2 ${theme === 'dark' ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`} aria-label="ปิด"><X className="h-5 w-5" /></button>
+            </div>
+
+            <div className="mt-6 grid gap-5 md:grid-cols-2">
+              <label className="text-xs font-black">รุ่น/ตัวเลือกสินค้า<select value={manualScaleDraft.variantId} onChange={event => { const match = variantGroups.flatMap(group => group.options.map(option => ({ id: option.id, label: `${group.name}: ${option.label}` }))).find(option => option.id === event.target.value); setManualScaleDraft(previous => ({ ...previous, variantId: event.target.value, variantLabel: match?.label || previous.variantLabel })); }} className={`mt-2 w-full rounded-xl border px-3 py-3 text-sm outline-none ${theme === 'dark' ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-white'}`}><option value="">กำหนดชื่อเอง</option>{variantGroups.flatMap(group => group.options.map(option => <option key={option.id} value={option.id}>{group.name}: {option.label}</option>))}</select></label>
+              <label className="text-xs font-black">ชื่อที่แสดงบนภาพ<input value={manualScaleDraft.variantLabel} onChange={event => setManualScaleDraft(previous => ({ ...previous, variantLabel: event.target.value }))} placeholder="เช่น ตะแกรง 30 × 40 ซม." className={`mt-2 w-full rounded-xl border px-3 py-3 text-sm outline-none ${theme === 'dark' ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-white'}`}/></label>
+            </div>
+
+            <div className={`mt-5 rounded-2xl border p-4 ${theme === 'dark' ? 'border-orange-900/70 bg-orange-950/20' : 'border-orange-100 bg-orange-50/60'}`}>
+              <h4 className="text-sm font-black text-orange-600">1. มิติสินค้าจริง</h4>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <label className="text-xs font-bold">กว้าง (ซม.)<input inputMode="decimal" value={manualScaleDraft.widthCm} onChange={event => setManualScaleDraft(previous => ({ ...previous, widthCm: event.target.value }))} placeholder="30" className={`mt-1 w-full rounded-xl border px-3 py-2.5 text-sm outline-none ${theme === 'dark' ? 'border-slate-700 bg-slate-900' : 'border-orange-100 bg-white'}`}/></label>
+                <label className="text-xs font-bold">ยาว (ซม.)<input inputMode="decimal" value={manualScaleDraft.lengthCm} onChange={event => setManualScaleDraft(previous => ({ ...previous, lengthCm: event.target.value }))} placeholder="40" className={`mt-1 w-full rounded-xl border px-3 py-2.5 text-sm outline-none ${theme === 'dark' ? 'border-slate-700 bg-slate-900' : 'border-orange-100 bg-white'}`}/></label>
+                <label className="text-xs font-bold">ลึก/หนา (ซม.)<input inputMode="decimal" value={manualScaleDraft.depthCm} onChange={event => setManualScaleDraft(previous => ({ ...previous, depthCm: event.target.value }))} placeholder="ไม่จำเป็น" className={`mt-1 w-full rounded-xl border px-3 py-2.5 text-sm outline-none ${theme === 'dark' ? 'border-slate-700 bg-slate-900' : 'border-orange-100 bg-white'}`}/></label>
+                <label className="text-xs font-bold">ช่องตะแกรง (มม.)<input inputMode="decimal" value={manualScaleDraft.meshCellMm} onChange={event => setManualScaleDraft(previous => ({ ...previous, meshCellMm: event.target.value }))} placeholder="เช่น 10" className={`mt-1 w-full rounded-xl border px-3 py-2.5 text-sm outline-none ${theme === 'dark' ? 'border-slate-700 bg-slate-900' : 'border-orange-100 bg-white'}`}/></label>
+              </div>
+              <p className={`mt-3 text-[11px] leading-5 ${theme === 'dark' ? 'text-orange-200/80' : 'text-orange-800/80'}`}>สำหรับตะแกรง: ระบุขนาดช่องเพียงครั้งเดียวได้ แม้แต่ละรุ่นจะมีขนาดภายนอกต่างกัน</p>
+            </div>
+
+            <div className={`mt-5 rounded-2xl border p-4 ${theme === 'dark' ? 'border-blue-900/70 bg-blue-950/20' : 'border-blue-100 bg-blue-50/60'}`}>
+              <h4 className="text-sm font-black text-blue-600">2. วัตถุอ้างอิงสเกล</h4>
+              <label className="mt-3 block text-xs font-bold">เลือก reference<select value={manualScaleDraft.referenceId} onChange={event => setManualScaleDraft(previous => ({ ...previous, referenceId: event.target.value as ScaleReferenceId }))} className={`mt-1 w-full rounded-xl border px-3 py-2.5 text-sm outline-none ${theme === 'dark' ? 'border-slate-700 bg-slate-900' : 'border-blue-100 bg-white'}`}>{SCALE_REFERENCE_PRESETS.map(reference => <option key={reference.id} value={reference.id}>{reference.label}</option>)}</select></label>
+              {manualScaleDraft.referenceId === 'custom' && <div className="mt-3 grid gap-3 sm:grid-cols-3"><label className="text-xs font-bold">ชื่อ reference<input value={manualScaleDraft.customReferenceLabel} onChange={event => setManualScaleDraft(previous => ({ ...previous, customReferenceLabel: event.target.value }))} className={`mt-1 w-full rounded-xl border px-3 py-2.5 text-sm outline-none ${theme === 'dark' ? 'border-slate-700 bg-slate-900' : 'border-blue-100 bg-white'}`}/></label><label className="text-xs font-bold">กว้าง (มม.)<input inputMode="decimal" value={manualScaleDraft.customReferenceWidthMm} onChange={event => setManualScaleDraft(previous => ({ ...previous, customReferenceWidthMm: event.target.value }))} className={`mt-1 w-full rounded-xl border px-3 py-2.5 text-sm outline-none ${theme === 'dark' ? 'border-slate-700 bg-slate-900' : 'border-blue-100 bg-white'}`}/></label><label className="text-xs font-bold">สูง (มม.)<input inputMode="decimal" value={manualScaleDraft.customReferenceHeightMm} onChange={event => setManualScaleDraft(previous => ({ ...previous, customReferenceHeightMm: event.target.value }))} className={`mt-1 w-full rounded-xl border px-3 py-2.5 text-sm outline-none ${theme === 'dark' ? 'border-slate-700 bg-slate-900' : 'border-blue-100 bg-white'}`}/></label></div>}
+              {manualScaleDraft.referenceId === 'hand' && <p className={`mt-3 text-[11px] ${theme === 'dark' ? 'text-blue-200/80' : 'text-blue-800/80'}`}>มือใช้สำหรับให้ลูกค้าเห็นภาพคร่าว ๆ เท่านั้น — หากต้องการอัตราส่วนที่ตรวจสอบได้ ให้ใช้ iPhone หรือวัตถุที่กำหนดขนาดเอง</p>}
+            </div>
+
+            <div className={`mt-5 rounded-xl border px-4 py-3 text-xs leading-5 ${theme === 'dark' ? 'border-slate-700 bg-slate-800 text-slate-300' : 'border-slate-200 bg-slate-50 text-slate-600'}`}><b>ผลลัพธ์:</b> เป็น Technical Size Chart แบบมุมบนที่ล็อก footprint กว้าง×ยาวและ reference ตามมิติที่กรอก ภาพนี้ไม่บิดสินค้าเพื่อให้ดูใหญ่หรือเล็กเกินจริง</div>
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button onClick={() => setIsManualScaleOpen(false)} className={`rounded-xl px-5 py-3 text-sm font-black ${theme === 'dark' ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-600'}`}>ยกเลิก</button><button onClick={createManualScaleChart} className="flex items-center justify-center gap-2 rounded-xl bg-orange-500 px-5 py-3 text-sm font-black text-white shadow-lg shadow-orange-500/25 transition hover:bg-orange-600"><Ruler className="h-4 w-4" />สร้าง Size Chart สเกลจริง</button></div>
+          </section>
+        </div>
+      )}
+
       {/* Image Preview Modal */}
       {previewImage && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setPreviewImage(null)}>
-          <div className="relative max-w-7xl max-h-[90vh] w-full h-full flex items-center justify-center" onClick={e => e.stopPropagation()}>
-            <img
-              src={previewImage}
-              alt="Full Preview"
-              className="max-w-full max-h-full object-contain rounded-2xl shadow-2xl"
-            />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-in fade-in duration-200" onClick={closePreview}>
+          <div className="relative h-full w-full max-h-[90vh] max-w-7xl overflow-hidden rounded-3xl" onClick={event => event.stopPropagation()}>
+            <div className="absolute left-4 top-4 z-20 flex items-center gap-1 rounded-2xl border border-white/20 bg-slate-950/70 p-1.5 text-white shadow-2xl backdrop-blur-md">
+              <button onClick={() => setPreviewScale(value => Math.max(0.5, value - 0.25))} className="rounded-xl p-2 hover:bg-white/15" title="ซูมออก"><ZoomOut className="h-5 w-5" /></button>
+              <button onClick={resetPreviewView} className="min-w-16 rounded-xl px-2 py-2 text-xs font-black hover:bg-white/15" title="รีเซ็ตขนาดและตำแหน่ง">{Math.round(previewScale * 100)}%</button>
+              <button onClick={() => setPreviewScale(value => Math.min(4, value + 0.25))} className="rounded-xl p-2 hover:bg-white/15" title="ซูมเข้า"><ZoomIn className="h-5 w-5" /></button>
+            </div>
+            <div className="absolute bottom-4 left-1/2 z-20 -translate-x-1/2 rounded-full border border-white/15 bg-slate-950/65 px-4 py-2 text-[10px] font-bold text-white/85 backdrop-blur-md"><Move className="mr-1 inline h-3.5 w-3.5" />หมุนล้อเพื่อซูม · ลากเพื่อเลื่อน · กด 0 เพื่อรีเซ็ต</div>
+            <div
+              className={`flex h-full w-full touch-none items-center justify-center overflow-hidden ${previewScale > 1 ? isPreviewDragging ? 'cursor-grabbing' : 'cursor-grab' : 'cursor-zoom-in'}`}
+              onDoubleClick={resetPreviewView}
+              onWheel={event => {
+                event.preventDefault();
+                setPreviewScale(value => Math.max(0.5, Math.min(4, value - event.deltaY * 0.0015)));
+              }}
+              onPointerDown={event => {
+                if (previewScale <= 1) return;
+                previewDragStart.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, originX: previewOffset.x, originY: previewOffset.y };
+                setIsPreviewDragging(true);
+                event.currentTarget.setPointerCapture(event.pointerId);
+              }}
+              onPointerMove={event => {
+                const drag = previewDragStart.current;
+                if (!drag || drag.pointerId !== event.pointerId) return;
+                setPreviewOffset({ x: drag.originX + event.clientX - drag.x, y: drag.originY + event.clientY - drag.y });
+              }}
+              onPointerUp={event => {
+                if (previewDragStart.current?.pointerId !== event.pointerId) return;
+                previewDragStart.current = null;
+                setIsPreviewDragging(false);
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }}
+              onPointerCancel={() => {
+                previewDragStart.current = null;
+                setIsPreviewDragging(false);
+              }}
+            >
+              <img
+                src={previewImage}
+                alt="Full Preview"
+                draggable={false}
+                style={{ transform: `translate(${previewOffset.x}px, ${previewOffset.y}px) scale(${previewScale})` }}
+                className={`max-h-full max-w-full select-none rounded-2xl object-contain shadow-2xl will-change-transform ${isPreviewDragging ? 'transition-none' : 'transition-transform duration-100'}`}
+              />
+            </div>
             <button
-              onClick={() => setPreviewImage(null)}
+              onClick={closePreview}
               className="absolute top-4 right-4 p-3 bg-white/10 hover:bg-white/20 text-white rounded-full backdrop-blur-md transition-all active:scale-95"
+              title="ปิด (Esc)"
             >
               <X className="w-6 h-6" />
             </button>
@@ -2859,6 +3549,7 @@ const App: React.FC = () => {
         onSave={handleSaveEditedImage}
         removeBgApiHandler={callRemoveBgApi}
       />
+      {pricingCheckoutModal}
     </div>
   );
 };
