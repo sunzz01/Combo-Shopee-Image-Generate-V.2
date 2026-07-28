@@ -108,7 +108,10 @@ function getRecontextLocation() {
 }
 
 function getRecontextModel() {
-  return process.env.IMAGEN_RECONTEXT_MODEL || 'imagen-product-recontext-preview-06-30';
+  // The former preview model was retired/unavailable for this project. Only
+  // permit this legacy route when an administrator explicitly configures a
+  // currently entitled model in Vercel.
+  return process.env.IMAGEN_RECONTEXT_MODEL?.trim() || undefined;
 }
 
 function isImagenTextModel(model?: string) {
@@ -179,7 +182,7 @@ Goal:
 - Analyze the attached product image(s) and product context details.
 - Use the existing legacy prompt as creative direction, not as a final prompt.
 - Produce a concise Imagen Product Recontext prompt that keeps the exact same product but changes the scene/background.
-- Preserve product identity: shape, color, material, logo/label placement, visible accessories, and proportions.
+- PRODUCT IDENTITY ANCHOR: The FIRST attached image is the canonical physical product. Preserve it exactly: silhouette, dimensions/proportions, construction, handle/fasteners, colour, material finish, logo/label placement, and included pieces. Any later images only confirm alternate views. Never replace it with a generic product from the same category or redesign its physical form.
 - DYNAMIC THAI SLOGAN GENERATION: Read the product description and selling points carefully. Synthesize 1 unique, highly relevant, punchy Thai marketing slogan (3-6 words) specifically created for this product. NEVER use hardcoded static template phrases like "เผาแล้ว พร้อมใช้" unless the product is specifically a pre-seasoned cast iron pan.
 - CRITICAL LANGUAGE RULE: All text, banners, headlines, badges, callouts, size labels, and promotional text rendered inside the generated image MUST BE IN THAI LANGUAGE ONLY (ภาษาไทยเท่านั้น). Do NOT generate English text, pseudo-Latin, or gibberish text unless the confirmed product brand name itself is explicitly in English.
 - STRICT NO-METADATA RULE: NEVER render system metadata headings or category headers such as "จุดเด่นสินค้า:", "ราคาที่ผู้ขายยืนยัน:", "Key features:", "Confirmed selling price:", "Description:", "Product:", "Specs:", or "Features:". If rendering text, render ONLY clean natural marketing slogans tailored to this specific product, never system category headers or label prefixes.
@@ -237,6 +240,9 @@ async function generateProductRecontextImage(args: {
   const { projectId } = getVertexEnvironment();
   const location = getRecontextLocation();
   const modelName = getRecontextModel();
+  if (!modelName) {
+    throw new Error('Product Recontext is not configured. Select Gemini Image or configure IMAGEN_RECONTEXT_MODEL with an available Vertex model.');
+  }
   const accessToken = await getVertexAccessToken();
   const endpoint = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${modelName}:predict`;
 
@@ -498,12 +504,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           aspectRatio,
         });
       } catch (error) {
-        console.warn(`[api/generate] Enterprise model ${selectedModel} failed; attempting Product Recontext with source image...`, error);
-        generated = await generateProductRecontextImage({
-          prompt: orchestrated.prompt || fullGenerationPrompt,
+        // Keep the quality choice intact. Gemini 3.1 can occasionally return
+        // no image for a complex request, so wait briefly and retry the SAME
+        // selected model once. Never silently downgrade to another model or
+        // fall back to the retired Product Recontext preview model.
+        console.warn(`[api/generate] Enterprise model ${selectedModel} failed; waiting before one retry with the same model...`, error);
+        await new Promise(resolve => setTimeout(resolve, 1_500));
+        generated = await generateEnterpriseGeminiImage({
+          modelName: selectedModel,
+          prompt: fullGenerationPrompt,
           imageParts,
           aspectRatio,
-          negativePrompt: orchestrated.negativePrompt,
         });
       }
     } else {
