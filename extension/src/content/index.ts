@@ -1,4 +1,4 @@
-import type { MessageType, ProductPrice, ProductVariantGroup, ScannedImage } from '../types';
+import type { MessageType, ProductPrice, ProductVariantGroup, ProductVariantOption, ScannedImage } from '../types';
 
 // ===== SECURITY: Honeypot Detection =====
 // ตรวจสอบว่า element มองเห็นได้จริง ไม่ใช่กับดัก (honeypot)
@@ -69,6 +69,18 @@ const findCatalogNode = (value: unknown, depth = 0): Record<string, any> | undef
     return undefined;
 };
 
+const formatShopeeImageUrl = (imgOrHash?: string): string | undefined => {
+    if (!imgOrHash || typeof imgOrHash !== 'string') return undefined;
+    const trimmed = imgOrHash.trim();
+    if (!trimmed) return undefined;
+    if (trimmed.startsWith('//')) return `https:${trimmed}`;
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+        return trimmed.replace(/_tn(\.[a-z0-9]+)?(\?.*)?$/i, '$1$2');
+    }
+    const cleanHash = trimmed.replace(/_tn$/i, '');
+    return `https://down-th.img.susercontent.com/file/${cleanHash}`;
+};
+
 const extractCatalog = (value: unknown): { price?: ProductPrice; variantGroups: ProductVariantGroup[] } => {
     const item = findCatalogNode(value);
     if (!item) return { variantGroups: [] };
@@ -82,8 +94,18 @@ const extractCatalog = (value: unknown): { price?: ProductPrice; variantGroups: 
                 const matchingModels = models.filter((model: any) => Number(model?.tier_index?.[tierIndex]) === optionIndex);
                 const optionPrice = makePrice(matchingModels.map((model: any) => model.price), item.currency || 'THB');
                 const stockValues = matchingModels.map((model: any) => Number(model.stock)).filter((stock: number) => Number.isFinite(stock));
-                return { id: `${tierIndex}-${optionIndex}`, label: String(label).trim(), price: optionPrice, stock: stockValues.length ? Math.max(...stockValues) : undefined };
-            }).filter((option: ProductVariantGroup['options'][number]) => option.label);
+                const rawImage = (Array.isArray(tier.images) ? tier.images[optionIndex] : undefined)
+                    || matchingModels.find((m: any) => m?.image || m?.extinfo?.image)?.image
+                    || matchingModels.find((m: any) => m?.extinfo?.image)?.extinfo?.image;
+                const imageUrl = formatShopeeImageUrl(rawImage);
+                return {
+                    id: `${tierIndex}-${optionIndex}`,
+                    label: String(label).trim(),
+                    price: optionPrice,
+                    stock: stockValues.length ? Math.max(...stockValues) : undefined,
+                    imageUrl,
+                };
+            }).filter((option: ProductVariantOption) => option.label);
             return mapped.length ? { id: String(tier.id || `tier-${tierIndex}`), name: String(tier.name || `ตัวเลือก ${tierIndex + 1}`).trim(), options: mapped } : null;
         })
         .filter((group: ProductVariantGroup | null): group is ProductVariantGroup => Boolean(group));
@@ -113,15 +135,52 @@ const extractVariantGroupsFromVisiblePage = (): ProductVariantGroup[] => {
         if (!keyword.test(text) || text.length > 700) return;
         const name = text.match(/(สี|ขนาด|ไซซ์|รุ่น|แบบ|ตัวเลือก|Color|Size|Model|Style|Variation)\s*[:：-]?\s*[^\n]{0,40}/i)?.[0]
             ?.replace(/\s+/g, ' ').trim() || `ตัวเลือก ${index + 1}`;
-        const options = Array.from(container.querySelectorAll('button, [role="button"]'))
-            .filter(option => isElementVisible(option as HTMLElement))
-            .map(option => (option.textContent || '').replace(/\s+/g, ' ').trim())
-            .filter(option => option.length > 0 && option.length <= 80 && !/ซื้อ|add to cart|เพิ่มลง|ส่ง|share/i.test(option));
-        const uniqueOptions = Array.from(new Set(options)).slice(0, 30);
-        const key = `${name}|${uniqueOptions.join('|')}`;
+        
+        const optionButtons = Array.from(container.querySelectorAll('button, [role="button"]'))
+            .filter(option => isElementVisible(option as HTMLElement));
+
+        const mappedOptions: ProductVariantOption[] = [];
+        const seenLabels = new Set<string>();
+
+        optionButtons.forEach((btn, optionIndex) => {
+            const btnEl = btn as HTMLElement;
+            const label = (btnEl.textContent || btnEl.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim();
+            if (!label || label.length > 80 || /ซื้อ|add to cart|เพิ่มลง|ส่ง|share/i.test(label)) return;
+            if (seenLabels.has(label)) return;
+            seenLabels.add(label);
+
+            let imgUrl: string | undefined;
+            const imgEl = btnEl.querySelector('img');
+            if (imgEl) {
+                imgUrl = imgEl.currentSrc || imgEl.src || imgEl.getAttribute('data-src') || imgEl.getAttribute('lazy-src') || undefined;
+            }
+            if (!imgUrl) {
+                const bgEls = [btnEl, ...Array.from(btnEl.querySelectorAll<HTMLElement>('[style*="background-image"]'))];
+                for (const el of bgEls) {
+                    const bg = el.style.backgroundImage || window.getComputedStyle(el).backgroundImage;
+                    const match = bg?.match(/url\(["']?(https?:[^"']+|\/\/[^"']+)["']?\)/i);
+                    if (match && match[1]) {
+                        imgUrl = match[1];
+                        break;
+                    }
+                }
+            }
+            if (imgUrl) {
+                imgUrl = formatShopeeImageUrl(imgUrl);
+            }
+
+            mappedOptions.push({
+                id: `dom-${index}-${optionIndex}`,
+                label,
+                imageUrl: imgUrl || undefined,
+            });
+        });
+
+        const uniqueOptions = mappedOptions.slice(0, 30);
+        const key = `${name}|${uniqueOptions.map(o => o.label).join('|')}`;
         if (uniqueOptions.length && !seen.has(key)) {
             seen.add(key);
-            groups.push({ id: `dom-${index}`, name, options: uniqueOptions.map((label, optionIndex) => ({ id: `dom-${index}-${optionIndex}`, label })) });
+            groups.push({ id: `dom-${index}`, name, options: uniqueOptions });
         }
     });
     return groups.slice(0, 3);
@@ -369,6 +428,15 @@ chrome.runtime.onMessage.addListener((message: MessageType, _sender: chrome.runt
             .filter(r => r.initiatorType === 'img' || r.name.match(/\.(jpg|jpeg|png|webp|avif)/i))
             .map(r => r.name);
         perfImages.forEach(src => addImage(src, 0, 0, 'Network'));
+
+        // รวมภาพตัวเลือกสินค้า (Variation Images) เข้ามาในแกลเลอรีเพื่อให้ผู้ใช้เลือกได้
+        scrapedVariantGroups.forEach(group => {
+            group.options.forEach(option => {
+                if (option.imageUrl) {
+                    addImage(option.imageUrl, 500, 500, `${group.name}: ${option.label}`);
+                }
+            });
+        });
 
         // Unique filter + High fidelity priority
         const uniqueMap = new Map<string, ScannedImage>();

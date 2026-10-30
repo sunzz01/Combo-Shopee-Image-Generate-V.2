@@ -48,6 +48,7 @@ export interface ProductVariantOption {
     label: string;
     price?: ProductPrice;
     stock?: number;
+    imageUrl?: string;
 }
 
 export interface ProductVariantGroup {

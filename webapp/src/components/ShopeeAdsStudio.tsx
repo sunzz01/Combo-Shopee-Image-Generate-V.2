@@ -1,743 +1,753 @@
-import React, { useMemo, useRef } from 'react';
-import JSZip from 'jszip';
-import { Download, HelpCircle, ImagePlus, Loader2, Package, RefreshCw, ShieldCheck, Sparkles, UserRound, X } from 'lucide-react';
-import { generateProductImage, type ShopeeAdBrief } from '../apiClient';
-import { ImageCategory, type ProductData, type ProductPrice, type ProductVariantGroup } from '../../types';
-
-type AssetKind = 'product' | 'package' | 'logo';
-type AdStatus = 'ready' | 'generating' | 'completed' | 'error';
-type CampaignStyle =
-  | 'thai-premium'
-  | 'emerald-gold-premium'
-  | 'rose-gold-premium'
-  | 'royal-violet-premium'
-  | 'ruby-crimson-premium'
-  | 'monochrome-luxury'
-  | 'clean-editorial'
-  | 'vibrant-shopee'
-  | 'warm-lifestyle'
-  | 'dark-tech';
-type HeroCreativeMode = 'human-product-female' | 'human-product-male' | 'human-product-couple' | 'product-dominant' | 'short-hook' | 'price-ready' | 'human-product';
-type TextOverlayStyle = '3d-outlined' | 'top-banner' | 'modern-card';
-type TextRenderingMode = 'ai-native' | 'app-overlay' | 'clean';
-
-const THAI_FONTS: { id: string; label: string }[] = [
-  { id: 'Prompt', label: 'Prompt (นิยมที่สุด E-Commerce)' },
-  { id: 'Kanit', label: 'Kanit (ตัวหนา คอนทราสต์สูง)' },
-  { id: 'Krub', label: 'Krub (โมเดิร์น โค้งมน มินิมอล)' },
-  { id: 'Chakra Petch', label: 'Chakra Petch (สปอร์ต / ไอที)' },
-  { id: 'Sarabun', label: 'Sarabun (เรียบหรู น่าเชื่อถือ)' },
-  { id: 'Mitr', label: 'Mitr (มน นุ่มนวล เป็นธรรมชาติ)' },
-  { id: 'Noto Sans Thai', label: 'Noto Sans Thai (สากล อ่านง่าย)' },
-];
-
-const CAMPAIGN_STYLES: { id: CampaignStyle; label: string; description: string; direction: string }[] = [
-  {
-    id: 'thai-premium',
-    label: '✨ Thai Premium (ส้ม–กรมท่า)',
-    description: 'กรมท่าพรีเมียม ตัดส้ม Shopee หรู สะอาด',
-    direction: 'Thai premium ecommerce campaign. Use deep rich navy canvas, warm Shopee orange gradient accents, soft studio rim lighting, refined matte surfaces, confident but clean typography hierarchy.'
-  },
-  {
-    id: 'emerald-gold-premium',
-    label: '🟢 Emerald & Gold (เขียวมรกต–ทองคำ)',
-    description: 'เขียวมรกตหรูหรา ตัดทองคำแท้ เหมาะกับสุขภาพ/ออร์แกนิก/เครื่องครัว',
-    direction: 'High-end luxury emerald green and gold ecommerce campaign. Deep polished emerald green background, rich metallic gold borders, golden banner badges, warm luxury studio spotlighting, elegant high-class aesthetic.'
-  },
-  {
-    id: 'rose-gold-premium',
-    label: '🌸 Rose Gold Luxury (ชมพูโรสโกลด์–เบจ)',
-    description: 'ชมพูโรสโกลด์ สวยหรู สไตล์สกินแคร์/บิวตี้/แฟชั่น',
-    direction: 'Luxury Rose Gold & warm cream beige aesthetic. Soft satin background, rose gold metallic accent banners, romantic soft studio glow, high-end cosmetic and lifestyle brand atmosphere.'
-  },
-  {
-    id: 'royal-violet-premium',
-    label: '💜 Royal Violet & Gold (ม่วงรอยัล–ทอง)',
-    description: 'ม่วงเข้มราชวงศ์ ตัดทองคำ เพิ่มมูลค่าสินค้า VIP',
-    direction: 'Exclusive VIP Royal Violet and gold campaign. Deep regal violet purple background, polished gold badge framing, high-contrast luxury studio rim lighting, premium high-value product atmosphere.'
-  },
-  {
-    id: 'ruby-crimson-premium',
-    label: '🔴 Ruby Crimson & Gold (แดงรูบี้–ทอง)',
-    description: 'แดงมงคล/ตรุษจีน/แคมเปญใหญ่ ตัดทองคำ หยุดสายตา',
-    direction: 'High-converting festive & mega-campaign aesthetic. Rich deep ruby crimson red canvas, vibrant gold accent badges, energetic studio lighting, striking high-visibility commercial presentation.'
-  },
-  {
-    id: 'monochrome-luxury',
-    label: '🖤 Monochrome Luxury (ดำ–เทา–เงิน)',
-    description: 'ดำเรียบหรูสตรีท/ไฮเอนด์ ตัดเงินเมทัลลิก สไตล์สินค้าเทค/โมเดิร์น',
-    direction: 'Sleek modern monochrome luxury campaign. Deep charcoal black and dark slate background, metallic silver accent highlights, high-contrast crisp studio rim lighting, high-fashion minimalist aesthetics.'
-  },
-  {
-    id: 'clean-editorial',
-    label: '🤍 Clean Editorial (ขาวมินิมอล)',
-    description: 'ขาวสะอาด สไตล์แคตตาล็อกแบรนด์ชั้นนำ',
-    direction: 'Clean editorial product campaign. Use warm white backgrounds, restrained neutral palette, soft daylight, generous whitespace, premium catalogue composition.'
-  },
-  {
-    id: 'vibrant-shopee',
-    label: '🧡 Vibrant Shopee (ส้ม–สดใส)',
-    description: 'เน้นโปรโมชัน สีสดใส ดึงดูดความสนใจ',
-    direction: 'Vibrant Thai marketplace campaign. Use energetic orange-red accents, high clarity, friendly light, bold but tidy visual hierarchy, never cluttered.'
-  },
-  {
-    id: 'warm-lifestyle',
-    label: '☀️ Warm Lifestyle (อบอุ่น–โกลเด้น)',
-    description: 'โทนอบอุ่น ฟีลบ้านและธรรมชาติ',
-    direction: 'Warm lifestyle campaign. Use golden natural light, tactile home or everyday settings, approachable Thai lifestyle mood, cohesive warm palette.'
-  },
-  {
-    id: 'dark-tech',
-    label: '⚡ Dark Tech (ไอที–นีออน)',
-    description: 'เข้ม ดุดัน สไตล์อุปกรณ์ไอที & แก็ดเจ็ต',
-    direction: 'Modern dark technology campaign. Use charcoal or deep navy backgrounds, controlled highlights, precise product edges, premium high-contrast studio lighting.'
-  },
-];
-
-const HERO_CREATIVE_MODES: { id: HeroCreativeMode; label: string; description: string; direction: string }[] = [
-  {
-    id: 'human-product-female',
-    label: '👩 แบรนด์แอมบาสเดอร์ ผู้หญิง + สินค้าเด่น (ขายดี ⭐)',
-    description: 'พรีเซนเตอร์หญิงไทย/เอเชีย สวย น่ารัก สดใส (อายุ 23–28 ปี) ถือ/แสดงสินค้าลอยเด่นใหญ่ 75–85%',
-    direction: 'CRITICAL CAMERA FRAMING & SUBJECT POSING: Shot type MUST be a high-impact Medium Close-Up portrait (chest-up or waist-up). The presenter is a beautiful, attractive, young Thai female brand ambassador (age 23–28 years old) with a cheerful bright smile, modern stylish hair, glowing clear healthy skin, and friendly direct eye contact. The female presenter holds or displays the exact product FORWARD TOWARDS THE CAMERA LENS IN THE FOREGROUND, occupying 75-85% of the center/lower canvas. Apply the 7-point Cover Typography & Visual Hierarchy rules (1 dominant main hook, max 1 simpler subtitle line, single focal accent, distinct 3-level hierarchy, 3-layer color system, no duplicate hooks, mobile thumbnail readability).'
-  },
-  {
-    id: 'human-product-male',
-    label: '👨 แบรนด์แอมบาสเดอร์ ผู้ชาย + สินค้าเด่น',
-    description: 'พรีเซนเตอร์ชายไทย/เอเชีย หล่อ ดูดี สดใส (อายุ 25–30 ปี) ถือ/แสดงสินค้าลอยเด่นใหญ่ 75–85%',
-    direction: 'CRITICAL CAMERA FRAMING & SUBJECT POSING: Shot type MUST be a high-impact Medium Close-Up portrait (chest-up or waist-up). The presenter is a handsome, attractive, young Thai male brand ambassador (age 25–30 years old) with a confident bright smile, modern stylish hair, glowing clear healthy skin, and direct eye contact. The male presenter holds or displays the exact product FORWARD TOWARDS THE CAMERA LENS IN THE FOREGROUND, occupying 75-85% of the center/lower canvas. Apply the 7-point Cover Typography & Visual Hierarchy rules (1 dominant main hook, max 1 simpler subtitle line, single focal accent, distinct 3-level hierarchy, 3-layer color system, no duplicate hooks, mobile thumbnail readability).'
-  },
-  {
-    id: 'human-product-couple',
-    label: '👩‍❤️‍👨 แบรนด์แอมบาสเดอร์ คู่ชาย-หญิง + สินค้าเด่น',
-    description: 'พรีเซนเตอร์คู่ชายหญิง วัยรุ่นดูดี ถือ/แสดงสินค้าลอยเด่นร่วมกัน',
-    direction: 'CRITICAL CAMERA FRAMING & SUBJECT POSING: Medium Close-Up portrait showing a friendly, attractive young Thai male and female couple (age 24–30), smiling warmly into the camera lens with bright cheerful energy. They present the exact product forward towards the camera lens in foreground occupying 75-85% of the canvas. Apply the 7-point Cover Typography & Visual Hierarchy rules (1 dominant main hook, max 1 simpler subtitle line, single focal accent, distinct 3-level hierarchy, 3-layer color system, no duplicate hooks, mobile thumbnail readability).'
-  },
-  {
-    id: 'product-dominant',
-    label: '📦 สินค้าเด่นที่สุด (ไร้พรีเซนเตอร์)',
-    description: 'สินค้าใหญ่ 65–75% · Hook เดียวสั้น ๆ',
-    direction: 'Make the exact product the unmistakable hero, occupying approximately 65–75% of the canvas in the foreground. Apply the 7-point Cover Typography & Visual Hierarchy rules.'
-  },
-  {
-    id: 'short-hook',
-    label: '🎯 Hook สั้น หยุดสายตา',
-    description: 'สินค้าชัด · พื้นที่ Hook 2–5 คำ',
-    direction: 'Keep the product large and crisp at approximately 60–70% of the canvas. Apply the 7-point Cover Typography & Visual Hierarchy rules for one compelling Thai hook of 2–5 words.'
-  },
-  {
-    id: 'price-ready',
-    label: '🏷️ พร้อมราคา / โปรโมชัน',
-    description: 'สินค้าเด่น · เว้นพื้นที่ราคาเล็ก กระชับ',
-    direction: 'Make the exact product occupy approximately 60–70% of the canvas. Apply the 7-point Cover Typography & Visual Hierarchy rules.'
-  },
-];
-
-export type ThaiAdsCard = ShopeeAdBrief & {
-  id: string;
-  status: AdStatus;
-  visualStyle: CampaignStyle;
-  heroCreativeMode?: HeroCreativeMode;
-  textRenderingMode?: TextRenderingMode;
-  textOverlayStyle?: TextOverlayStyle;
-  thaiFont?: string;
-  badgeText?: string;
-  imageUrl?: string;
-  error?: string;
-  modelUsed?: string;
-  promptUsed?: string;
-};
-
-export type ThaiAdsSession = {
-  assets: Record<AssetKind, string[]>;
-  name: string;
-  details: string;
-  factsText: string;
-  price?: ProductPrice;
-  variantGroups?: ProductVariantGroup[];
-  usePrice: boolean;
-  useVariants: boolean;
-  count: number;
-  heroWithPerson: boolean;
-  personBrief: string;
-  campaignStyle: CampaignStyle;
-  campaignDirection: string;
-  cards: ThaiAdsCard[];
-  isGenerating: boolean;
-  notice: string;
-};
-
-export const createThaiAdsSession = (): ThaiAdsSession => ({
-  assets: { product: [], package: [], logo: [] },
-  name: '',
-  details: '',
-  factsText: '',
-  price: { currency: 'THB' },
-  variantGroups: [],
-  usePrice: false,
-  useVariants: false,
-  count: 10,
-  heroWithPerson: true,
-  personBrief: 'คนไทยหรือเอเชียวัยผู้ใหญ่ พรีเซนเตอร์ยิ้มแย้มถือสินค้าเด่นออกมาด้านหน้าใกล้กล้อง',
-  campaignStyle: 'thai-premium',
-  campaignDirection: CAMPAIGN_STYLES[0].direction,
-  cards: [],
-  isGenerating: false,
-  notice: '',
-});
-
-const BLUEPRINTS: Omit<ThaiAdsCard, 'status' | 'imageUrl' | 'error' | 'visualStyle'>[] = [
-  { id: 'hero', role: 'THAI AD COVER HERO', title: 'ภาพปกยิงแอด', objective: 'หยุดสายตาใน 1 วินาที พรีเซนเตอร์เด่นพร้อมสินค้า foreground ใหญ่', facts: [], thaiCopy: [], includePerson: true },
-  { id: 'hero-lifestyle', role: 'HERO COVER LIFESTYLE + PRODUCT SHOT', title: 'Hero Shot พร้อมคน', objective: 'สินค้าอยู่ foreground ใหญ่ 80% และมีพรีเซนเตอร์ไทย/เอเชียถือสินค้าเสนอหน้ากล้อง', facts: [], thaiCopy: [], includePerson: true },
-  { id: 'anatomy', role: 'PRODUCT ANATOMY & CALLOUT', title: 'จุดเด่นสินค้า', objective: 'อธิบายชิ้นส่วนหรือฟังก์ชันที่ยืนยันแล้ว', facts: [], thaiCopy: [] },
-  { id: 'spec', role: 'SPECIFICATION & SIZE', title: 'สเปกและขนาด', objective: 'สื่อสารเฉพาะสเปกที่ผู้ขายยืนยัน', facts: [], thaiCopy: [] },
-  { id: 'macro', role: 'MATERIAL & MACRO DETAIL', title: 'วัสดุและรายละเอียด', objective: 'แสดงพื้นผิว งานประกอบ และคุณภาพที่เห็นจริง', facts: [], thaiCopy: [] },
-  { id: 'action', role: 'KEY FEATURE IN ACTION', title: 'จุดเด่นขณะใช้งาน', objective: 'สาธิตประโยชน์ในสถานการณ์จริงโดยไม่กล่าวเกินจริง', facts: [], thaiCopy: [] },
-  { id: 'solution', role: 'PROBLEM / SOLUTION', title: 'ปัญหาและทางออก', objective: 'แสดงปัญหาที่ผลิตภัณฑ์ช่วยได้ตามข้อมูลจริง', facts: [], thaiCopy: [] },
-  { id: 'lifestyle', role: 'THAI LIFESTYLE USE', title: 'การใช้งานจริง', objective: 'ให้ลูกค้าเห็นบริบทใช้งานที่เข้ากับสินค้า', facts: [], thaiCopy: [], includePerson: true },
-  { id: 'package', role: 'PACKAGE, WHAT IS INCLUDED & CLOSING VALUE', title: 'ในกล่องมีอะไรบ้าง', objective: 'สรุปแพ็กเกจและสิ่งที่ได้รับตามภาพ/ข้อมูลจริง', facts: [], thaiCopy: [] },
-  { id: 'feature', role: 'FEATURE INFOGRAPHIC', title: 'อินโฟกราฟิกจุดขาย', objective: 'วางสินค้าใหญ่ด้านขวาและเว้นพื้นที่ซ้ายสำหรับข้อมูล', facts: [], thaiCopy: [] },
-];
-
-const readFiles = async (files: FileList | null): Promise<string[]> => Promise.all(Array.from(files || []).map(file => new Promise<string>((resolve, reject) => {
-  const reader = new FileReader();
-  reader.onload = () => resolve(String(reader.result));
-  reader.onerror = reject;
-  reader.readAsDataURL(file);
-})));
-
-const cleanName = (value: string) => value.replace(/[\\/:*?"<>|]/g, '_').trim() || 'shopee-ad';
-const compactCoverCopy = (value: string, maxLength = 42) => {
-  const cleaned = value
-    .replace(/\*\*/g, '')
-    .replace(/^[-•\d.)\s]+/, '')
-    .split(/[.!?\n]/)[0]
-    .trim();
-  return cleaned.length > maxLength ? `${cleaned.slice(0, maxLength - 1).trim()}…` : cleaned;
-};
-const buildCoverCopy = (name: string, details: string, facts: string[]) => {
-  const hook = compactCoverCopy(facts[0] || name, 34);
-  const support = compactCoverCopy(facts[1] || details || name, 58);
-  return support && support !== hook ? [hook, support] : [hook];
-};
-
-const categoryForCard = (id: string): ImageCategory => ({
-  hero: ImageCategory.COVER,
-  anatomy: ImageCategory.INFOGRAPHIC,
-  spec: ImageCategory.SIZE_CHART,
-  macro: ImageCategory.CLOSE_UP,
-  action: ImageCategory.LIFESTYLE_A,
-  solution: ImageCategory.INFOGRAPHIC,
-  lifestyle: ImageCategory.LIFESTYLE_A,
-  package: ImageCategory.INFOGRAPHIC,
-  'hero-lifestyle': ImageCategory.LIFESTYLE_B,
-  feature: ImageCategory.INFOGRAPHIC,
-}[id] || ImageCategory.COVER);
-
-const styleMeta = (id: CampaignStyle) => CAMPAIGN_STYLES.find(style => style.id === id) || CAMPAIGN_STYLES[0];
-const isHeroCard = (id: string) => id === 'hero' || id === 'hero-lifestyle';
-const heroCreativeMeta = (id?: HeroCreativeMode) => HERO_CREATIVE_MODES.find(mode => mode.id === id || (id === 'human-product' && mode.id === 'human-product-female')) || HERO_CREATIVE_MODES[0];
-
-const sanitizeFactLine = (line: string) => {
-  let text = line.trim();
-  text = text.replace(/^[-•*\d.)\s]+/, '').replace(/\*\*/g, '').trim();
-  text = text.replace(/^(ราคาที่ผู้ขายยืนยัน|จุดเด่นสินค้า|รายละเอียดสินค้า|รายละเอียด|คุณสมบัติ|ราคาแสดง|ราคา|วิธีใช้งาน|คำขาย|hook|Key features|Confirmed selling price|Description|Product|Specs|Features)\s*:\s*/i, '').trim();
-  return text;
-};
-
-const buildSegmentTailoredCopy = (
-  cardId: string,
-  cardTitle: string,
-  name: string,
-  details: string,
-  facts: string[],
-  usePrice = false
-): string[] => {
-  const cleanNameText = name.replace(/^[-•*\d.)\s]+/, '').replace(/\*\*/g, '').trim();
-  const cleanFacts = facts
-    .map(sanitizeFactLine)
-    .filter(f => {
-      if (!f || f.length < 2) return false;
-      if (/^(จุดเด่นสินค้า|รายละเอียดสินค้า|รายละเอียด|คุณสมบัติ|ราคาที่ผู้ขายยืนยัน|สเปกและขนาด|วัสดุและการประกอบ)$/i.test(f)) return false;
-      if (!usePrice && (/^(ราคา|฿|\$)/i.test(f) || (/[\$฿\d]+/.test(f) && /บาท|ราคา/i.test(f)))) return false;
-      return true;
-    });
-
-  const f0 = cleanFacts[0] || compactCoverCopy(cleanNameText, 34) || 'สินค้าคุณภาพพรีเมียม';
-  const f1 = cleanFacts[1] || cleanFacts[0] || 'คุ้มค่าใช้งานยาวนาน';
-  const f2 = cleanFacts[2] || cleanFacts[1] || f0;
-  const f3 = cleanFacts[3] || cleanFacts[2] || f1;
-  const f4 = cleanFacts[4] || cleanFacts[3] || f2;
-  const f5 = cleanFacts[5] || cleanFacts[4] || f3;
-
-  switch (cardId) {
-    case 'hero':
-      return [
-        compactCoverCopy(f0, 34),
-        compactCoverCopy(f1 !== f0 ? f1 : (cleanNameText || 'รุ่นยอดฮิต ขายดี ⭐'), 48),
-      ].filter(Boolean);
-
-    case 'hero-lifestyle':
-      return [
-        compactCoverCopy(f1, 34),
-        compactCoverCopy(f2 !== f1 ? f2 : 'ตอบโจทย์ทุกการใช้งาน', 48),
-      ].filter(Boolean);
-
-    case 'anatomy':
-      return [
-        compactCoverCopy(f2, 36),
-        compactCoverCopy(f3 !== f2 ? f3 : 'ฟังก์ชันใช้งานครบครัน', 48),
-      ].filter(Boolean);
-
-    case 'spec': {
-      const specFacts = cleanFacts.filter(f => /เบอร์|นิ้ว|ซม|มม|ขนาด|น้ำหนัก|หนา|กว้าง|ยาว|สูง|เกรด|รุ่น/i.test(f));
-      const chosenSpecs = (specFacts.length ? specFacts : cleanFacts.slice(1)).slice(0, 2);
-      return chosenSpecs.map(f => compactCoverCopy(f, 44)).filter(Boolean);
-    }
-
-    case 'macro':
-      return [
-        compactCoverCopy(f3, 36),
-        compactCoverCopy(f4 !== f3 ? f4 : 'งานประกอบประณีต ทนทาน', 48),
-      ].filter(Boolean);
-
-    case 'action':
-      return [
-        compactCoverCopy(f4, 36),
-        compactCoverCopy(f5 !== f4 ? f5 : 'สะดวก รวดเร็ว พร้อมใช้', 48),
-      ].filter(Boolean);
-
-    case 'solution':
-      return [
-        compactCoverCopy(f5, 36),
-        compactCoverCopy(f0 !== f5 ? f0 : 'ตอบโจทย์ปัญหาตรงจุด', 48),
-      ].filter(Boolean);
-
-    case 'lifestyle':
-      return [
-        compactCoverCopy(f1, 36),
-        compactCoverCopy(f4 !== f1 ? f4 : 'เข้ากับทุกไลฟ์สไตล์การใช้งาน', 48),
-      ].filter(Boolean);
-
-    case 'package':
-      return [
-        'แพ็กเกจสินค้าครบชุด',
-        compactCoverCopy(cleanNameText || f0, 44),
-      ].filter(Boolean);
-
-    case 'feature':
-      return [
-        compactCoverCopy(f2, 36),
-        compactCoverCopy(f4 !== f2 ? f4 : f5, 48),
-      ].filter(Boolean);
-
-    default:
-      return [compactCoverCopy(f0, 40)];
-  }
-};
-
-const buildThaiAdsPrompt = (card: ThaiAdsCard, campaignDirection: string) => {
-  const mode = card.textRenderingMode || 'ai-native';
-
-  let textDirective = '';
-  if (mode === 'ai-native') {
-    textDirective = `TYPOGRAPHY & VISUAL ART: Design creative, high-impact Thai text graphics tailored specifically to this product. Feel free to use diverse font styles (e.g., bold 3D extruded text, modern dynamic headlines, glowing stroke outlines, brush calligraphy, ribbon banners, or sleek geometric badges). Match colors organically to the product palette and campaign visual style. Avoid repeating the same simple rounded capsule pill shape on every image. Thai copy to render: "${card.thaiCopy.join(' | ')}". STRICT NO-PRICE RULE: Do NOT render price numbers, price ranges, currency symbols (฿, $), or "ราคาที่ผู้ขายยืนยัน" inside the image unless explicitly included in the Thai copy above.`;
-  } else if (mode === 'clean') {
-    textDirective = 'Do not render any text, prices, or words inside the image. Pure product studio photography only.';
-  } else {
-    textDirective = 'Leave a clean editable overlay zone at top or corner for client-side Thai text overlay. Do not render text inside the image.';
-  }
-
-  let presenterDirective = '';
-  if (card.heroCreativeMode === 'human-product-female') {
-    presenterDirective = `CAMERA & POSING INSTRUCTIONS: Sharp, crystal-clear Medium Close-Up portrait (chest-up). Include ONE beautiful, attractive, young Thai female brand ambassador (age 23–28 years old) with a warm cheerful smile, modern styled hair, clear glowing skin, and direct eye contact with the camera. The presenter holds/presents the exact product ONCE in her hands. CRITICAL FOCUS RULE: Both the presenter's face AND the product MUST be in razor-sharp focus with professional studio lighting. Do NOT blur out the presenter into the background. SINGLE PRODUCT RULE: Render the exact product ONCE only; do NOT render a second duplicate product in the scene or background.`;
-  } else if (card.heroCreativeMode === 'human-product-male') {
-    presenterDirective = `CAMERA & POSING INSTRUCTIONS: Sharp, crystal-clear Medium Close-Up portrait (chest-up). Include ONE handsome, attractive, young Thai male brand ambassador (age 25–30 years old) with a confident bright smile, modern styled hair, clear glowing skin, and direct eye contact with the camera. The presenter holds/presents the exact product ONCE in his hands. CRITICAL FOCUS RULE: Both the presenter's face AND the product MUST be in razor-sharp focus with professional studio lighting. Do NOT blur out the presenter into the background. SINGLE PRODUCT RULE: Render the exact product ONCE only; do NOT render a second duplicate product in the scene or background.`;
-  } else if (card.heroCreativeMode === 'human-product-couple') {
-    presenterDirective = `CAMERA & POSING INSTRUCTIONS: Sharp Medium Close-Up portrait showing ONE attractive young Thai couple (male & female, age 24–30) smiling warmly together at the camera, holding/presenting the exact product ONCE. Both faces AND the product MUST be in razor-sharp focus. Single product only.`;
-  } else if (card.heroCreativeMode === 'product-dominant' || card.heroCreativeMode === 'short-hook' || card.heroCreativeMode === 'price-ready') {
-    presenterDirective = 'STRICT NO-PERSON RULE: Pure product hero photography ONLY. Do NOT render any human, presenter, model, face, hands, or body parts in the image. The product is the 100% sole focal point occupying 75-80% of center canvas.';
-  } else if (card.includePerson) {
-    presenterDirective = `CAMERA & POSING INSTRUCTIONS: Sharp Medium Close-Up shot. Include ONE beautiful young Thai brand ambassador (age 23–30) with a warm smile, holding the product. Both presenter and product MUST be in sharp focus. Single product only.`;
-  } else {
-    presenterDirective = 'Do not include people in this product shot.';
-  }
-
-  return [
-    `Thai Shopee High-Impact Ads role: ${card.role}.`,
-    `Objective: ${card.objective}.`,
-    `Campaign art direction shared by the entire image set: ${campaignDirection}`,
-    `This card's visual treatment: ${styleMeta(card.visualStyle).label}. Keep palette, lighting, camera language, background materials compatible with the campaign direction.`,
-    'Use a clean Thai high-information ecommerce layout, with the exact reference product large and unmistakable. Preserve identity, colour, materials, labels, shape, proportions, and included pieces.',
-    '3D PERSPECTIVE FREEDOM: Reconstruct the exact product geometry 3-dimensionally. Do NOT freeze the exact camera angle of the uploaded reference photo. Feel free to render the product from dynamic commercial angles (e.g. 3/4 isometric angle, side profile, top-down flatlay, macro detail, or low hero angle) appropriate for this card role, while keeping the product 100% identical.',
-    'REALISTIC HOME & LIFESTYLE PHYSICS MANDATE: If the product is cookware, a wok, pan, or kitchen appliance, it MUST be placed directly ON A REAL STOVE, GAS HOB, or INDUCTION BURNER when cooking food with steam. NEVER render a hot pan stir-frying food directly on a bare wooden dining table or countertop without a stove. Ensure natural hand ergonomics and believable posture—one hand holding utensil or handle with a natural grip.',
-    'COMMERCIAL REALISM & SCENE PHYSICS DIRECTIVES: (1) Match environment to authentic product domain (kitchen/stove for cookware, outdoor patio for BBQ, vanity for beauty, desk for tech). (2) For "What\'s in the Box" cards, render ONLY confirmed included items; do NOT invent unconfirmed extra accessories. (3) For Spec/Size cards, anchor clean dimension lines directly to product edges—never floating in air. (4) Ensure 100% natural human hand ergonomics without clashing tools.',
-    card.facts.length ? `Confirmed facts only: ${card.facts.filter(f => !/ราคาที่ผู้ขายยืนยัน|฿|\$/i.test(f)).join(' | ')}.` : 'Use only visible product details; do not invent specifications.',
-    presenterDirective,
-    isHeroCard(card.id) && card.heroCreativeMode ? `Cover creative direction — ${heroCreativeMeta(card.heroCreativeMode).label}: ${heroCreativeMeta(card.heroCreativeMode).direction}` : '',
-    isHeroCard(card.id) ? `COVER TYPOGRAPHY & VISUAL HIERARCHY RULES (MANDATORY):
-1. NO DUPLICATE HOOKS (Hook ห้ามซ้ำทั้งภาพ): Never repeat the same slogan, phrase, or text across lines anywhere on the image canvas.
-2. DOMINANT MAIN HOOK (Main Hook ใหญ่ที่สุดเพียง 1 ชุด): The main Thai headline hook MUST be the single largest text element on the entire image.
-3. MAX 1 SUPPORTING LINE (มีข้อความรองได้สูงสุด 1 บรรทัด): At most ONE supporting subtitle line below or next to the main headline. This line MUST be significantly simpler, lighter, and smaller than the main hook.
-4. SINGLE FOCAL ACCENT (เน้นคำหรือเลขสำคัญได้เพียงจุดเดียว): Emphasize or highlight at most ONE single key word, number, or feature claim on the entire image canvas.
-5. DISTINCT 3-LEVEL TYPOGRAPHY HIERARCHY (ทั้ง 3 ระดับต้องต่างกันจริง): The Main Hook, Supporting Line, and Accent Highlight MUST differ visibly in font size, font weight, and visual treatment.
-6. 3-LAYER COLOR SYSTEM (บังคับใช้ระบบสี 3 ชั้น): Apply a refined 3-layer color system (Primary text color, Deep outline/drop shadow, and ONE dynamic accent color). NEVER use the identical yellow-red-black text effect across all lines, and NEVER use identical font styles or weights for every line.
-7. THUMBNAIL READABILITY (เน้นการอ่านได้ชัดแม้อย่อเป็น thumbnail บนมือถือ): All rendered Thai headlines must be ultra-legible with high contrast, perfectly readable even when scaled down to a small mobile e-commerce thumbnail.` : '',
-    textDirective,
-    'STRICT NO-WATERMARK RULE: Do NOT render any digital watermarks, logo stamps, brand icons, Gemini logos, camera watermarks, or corner badges at the bottom-left, bottom-right, or anywhere on the image.',
-    'SOURCE IMAGE WATERMARK REMOVAL RULE: If the input reference photo contains any existing watermarks, logos, text overlays, timestamps, or corner badges, do NOT reproduce or copy those watermarks into the new generated image. Remove all source watermarks completely.',
-  ].filter(Boolean).join('\n\n');
-};
-
-/** Render High-Converting Thai E-Commerce Typography & Badges onto Canvas */
-async function imageWithCopy(
-  url: string,
-  copy: string[],
-  isCover = false,
-  overlayStyle: TextOverlayStyle = '3d-outlined',
-  badgeText?: string,
-  fontFamily = 'Prompt',
-  textRenderingMode: TextRenderingMode = 'ai-native'
-) {
-  const image = new Image();
-  image.crossOrigin = 'anonymous';
-  image.src = url;
-  await image.decode();
-
-  if (textRenderingMode === 'ai-native' || textRenderingMode === 'clean') {
-    const response = await fetch(url);
-    return await response.blob();
-  }
-
-  const canvas = document.createElement('canvas');
-  canvas.width = image.naturalWidth;
-  canvas.height = image.naturalHeight;
-  const ctx = canvas.getContext('2d')!;
-  ctx.drawImage(image, 0, 0);
-
-  const lines = copy.filter(Boolean).slice(0, isCover ? 2 : 4);
-  const w = canvas.width;
-  const h = canvas.height;
-
-  if (lines.length) {
-    const pad = Math.max(30, w * 0.045);
-    const headlineSize = Math.max(32, w * (isCover ? 0.065 : 0.052));
-    const supportSize = Math.max(20, w * 0.034);
-
-    if (overlayStyle === 'top-banner') {
-      const bannerHeight = headlineSize * lines.length * 1.3 + pad * 1.5;
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
-      ctx.fillRect(0, 0, w, bannerHeight);
-
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle = '#FFFFFF';
-      ctx.font = `800 ${headlineSize}px "${fontFamily}", "Prompt", "Kanit", Tahoma, sans-serif`;
-
-      lines.forEach((line, i) => {
-        const y = pad * 1.2 + i * (headlineSize * 1.25) + headlineSize / 2;
-        ctx.fillText(line, w / 2, y);
-      });
-    } else if (overlayStyle === '3d-outlined') {
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'top';
-      const startX = pad * 1.2;
-      let startY = pad * 1.2;
-
-      const grad = ctx.createLinearGradient(0, 0, 0, h * 0.35);
-      grad.addColorStop(0, 'rgba(0,0,0,0.65)');
-      grad.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, w, h * 0.35);
-
-      lines.forEach((line, index) => {
-        const fontSize = index === 0 ? headlineSize : supportSize;
-        ctx.font = `${index === 0 ? '900' : '700'} ${fontSize}px "${fontFamily}", "Prompt", "Kanit", Tahoma, sans-serif`;
-
-        ctx.strokeStyle = '#180d04';
-        ctx.lineWidth = Math.max(6, fontSize * 0.16);
-        ctx.lineJoin = 'round';
-
-        ctx.shadowColor = 'rgba(0,0,0,0.85)';
-        ctx.shadowBlur = 14;
-        ctx.shadowOffsetX = 3;
-        ctx.shadowOffsetY = 4;
-
-        ctx.strokeText(line, startX, startY);
-
-        ctx.shadowColor = 'transparent';
-        ctx.fillStyle = index === 0 ? '#FFFFFF' : '#FFDD00';
-        ctx.fillText(line, startX, startY);
-
-        startY += fontSize * 1.22;
-      });
-    } else {
-      const textHeight = isCover && lines.length > 1
-        ? headlineSize * 1.18 + supportSize * 1.35
-        : headlineSize * lines.length * 1.12;
-      const height = textHeight + pad * 1.8;
-
-      ctx.fillStyle = 'rgba(11, 22, 38, 0.86)';
-      ctx.beginPath();
-      ctx.roundRect(pad, pad, w - pad * 2, height, headlineSize * 0.3);
-      ctx.fill();
-
-      ctx.fillStyle = '#FFFFFF';
-      ctx.textBaseline = 'top';
-      ctx.textAlign = 'left';
-      ctx.font = `800 ${headlineSize}px "${fontFamily}", "Prompt", "Kanit", Tahoma, sans-serif`;
-      ctx.fillText(lines[0], pad * 1.6, pad * 1.5);
-
-      if (lines[1]) {
-        ctx.fillStyle = 'rgba(255,255,255,0.88)';
-        ctx.font = `600 ${supportSize}px "${fontFamily}", "Prompt", "Kanit", Tahoma, sans-serif`;
-        ctx.fillText(lines[1], pad * 1.6, pad * 1.5 + headlineSize * 1.2);
-      }
-    }
-  }
-
-  const defaultBadge = badgeText || (isCover ? 'เกรดพรีเมียม' : undefined);
-  if (defaultBadge) {
-    const badgeFontSize = Math.max(16, w * 0.028);
-    ctx.font = `800 ${badgeFontSize}px "${fontFamily}", "Prompt", "Kanit", sans-serif`;
-    const textWidth = ctx.measureText(defaultBadge).width;
-    const badgePaddingX = badgeFontSize * 0.9;
-    const badgePaddingY = badgeFontSize * 0.45;
-    const badgeWidth = textWidth + badgePaddingX * 2;
-    const badgeHeight = badgeFontSize + badgePaddingY * 2;
-
-    const badgeX = w - pad - badgeWidth;
-    const badgeY = h - pad - badgeHeight;
-
-    const bGrad = ctx.createLinearGradient(badgeX, badgeY, badgeX, badgeY + badgeHeight);
-    bGrad.addColorStop(0, '#DC2626');
-    bGrad.addColorStop(1, '#991B1B');
-
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-    ctx.shadowBlur = 10;
-    ctx.shadowOffsetY = 4;
-
-    ctx.fillStyle = bGrad;
-    ctx.beginPath();
-    ctx.roundRect(badgeX, badgeY, badgeWidth, badgeHeight, badgeHeight / 2);
-    ctx.fill();
-
-    ctx.shadowColor = 'transparent';
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    ctx.fillStyle = '#FFFFFF';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(defaultBadge, badgeX + badgeWidth / 2, badgeY + badgeHeight / 2);
-  }
-
-  return await new Promise<Blob>((resolve, reject) =>
-    canvas.toBlob(blob => (blob ? resolve(blob) : reject(new Error('Export failed'))), 'image/png')
-  );
-}
-const imageToBlob = async (url: string): Promise<Blob> => {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`ไม่สามารถดาวน์โหลดภาพได้ (HTTP ${response.status})`);
-  return response.blob();
-};
-
-export function ShopeeAdsStudio({ dark, imageModel, session, setSession }: {
-  dark: boolean;
-  imageModel: string;
-  session: ThaiAdsSession;
-  setSession: React.Dispatch<React.SetStateAction<ThaiAdsSession>>;
-}) {
-  const { assets, name, details, factsText, price, variantGroups = [], usePrice = false, useVariants = false, count, heroWithPerson, personBrief, campaignStyle, campaignDirection, cards, isGenerating, notice } = session;
-  const fileRefs = { product: useRef<HTMLInputElement>(null), package: useRef<HTMLInputElement>(null), logo: useRef<HTMLInputElement>(null) };
-  const activeGenerationRef = useRef<AbortController | null>(null);
-  const allImages = useMemo(() => [...assets.product, ...assets.package, ...assets.logo], [assets]);
-  const confirmedFacts = useMemo(() => {
-    return factsText
-      .split('\n')
-      .map(sanitizeFactLine)
-      .filter(Boolean)
-      .filter(f => !/^(ราคาที่ผู้ขายยืนยัน|ราคา|฿|\$)/i.test(f) && !/^[\d.,\s\-$฿]+$/.test(f));
-  }, [factsText]);
-  const commerceFacts = useMemo(() => {
-    const output: string[] = [];
-    if (usePrice) {
-      if (price?.display) output.push(`ราคาขายที่ยืนยัน: ${price.display}`);
-      else if (typeof price?.current === 'number') output.push(`ราคาขายที่ยืนยัน: ${new Intl.NumberFormat('th-TH', { style: 'currency', currency: price.currency || 'THB' }).format(price.current)}`);
-    }
-    if (useVariants) {
-      variantGroups.forEach(group => {
-        const options = group.options.map(option => option.label).filter(Boolean);
-        if (options.length) output.push(`${group.name}: ${options.join(', ')}`);
-      });
-    }
-    return output;
-  }, [price, variantGroups, usePrice, useVariants]);
-  const allFacts = useMemo(() => [...confirmedFacts, ...commerceFacts], [confirmedFacts, commerceFacts]);
-  const classCard = dark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900';
-  const modelLabel = imageModel === 'gemini-3.1-flash-image' ? 'Gemini 3.1 Flash Image' : imageModel;
-
-  const addAssets = async (kind: AssetKind, files: FileList | null) => {
-    const data = await readFiles(files);
-    setSession(prev => ({ ...prev, assets: { ...prev.assets, [kind]: [...prev.assets[kind], ...data] } }));
-  };
-  const createCards = () => BLUEPRINTS.slice(0, count).map(base => ({
-    ...base,
-    status: 'ready' as AdStatus,
-    visualStyle: campaignStyle,
-    textRenderingMode: 'ai-native' as TextRenderingMode,
-    textOverlayStyle: '3d-outlined' as TextOverlayStyle,
-    thaiFont: 'Prompt',
-    badgeText: base.id === 'hero' || base.id === 'hero-lifestyle' ? 'เกรดพรีเมียม' : undefined,
-    facts: allFacts,
-    thaiCopy: buildSegmentTailoredCopy(base.id, base.title, name, details, confirmedFacts, usePrice),
-    includePerson: base.id === 'hero' || base.id === 'hero-lifestyle' ? heroWithPerson : base.includePerson,
-    personBrief,
-    heroCreativeMode: isHeroCard(base.id) ? 'human-product-female' as HeroCreativeMode : undefined,
-  }));
-  const updateCard = (id: string, patch: Partial<ThaiAdsCard>) => setSession(prev => ({ ...prev, cards: prev.cards.map(card => card.id === id ? { ...card, ...patch } : card) }));
-  const productForGeneration = (): ProductData => ({
-    name,
-    description: details,
-    features: allFacts,
-    images: allImages,
-    price: usePrice ? price : undefined,
-    variantGroups: useVariants ? variantGroups : [],
-  });
-  const stopGeneration = () => {
-    if (!activeGenerationRef.current) return;
-    const confirmed = window.confirm('หยุดการสร้างภาพตอนนี้หรือไม่?\n\nคำขอถูกส่งให้ AI แล้ว เครดิตอาจถูกใช้ไปแล้วและไม่สามารถคืนอัตโนมัติได้ คุณยืนยันที่จะหยุดใช่หรือไม่?');
-    if (!confirmed) return;
-
-    activeGenerationRef.current.abort();
-    activeGenerationRef.current = null;
-    setSession(prev => ({
-      ...prev,
-      isGenerating: false,
-      notice: 'หยุดการสร้างแล้ว คุณสามารถกดสร้างใหม่ได้ทันที',
-      cards: prev.cards.map(card => card.status === 'generating'
-        ? { ...card, status: 'ready', imageUrl: undefined, error: undefined }
-        : card),
-    }));
-  };
-
-  const generate = async () => {
-    if (!allImages.length) return setSession(prev => ({ ...prev, notice: 'เพิ่มภาพสินค้าหลักอย่างน้อย 1 ภาพก่อนเริ่มสร้าง' }));
-    if (!name.trim()) return setSession(prev => ({ ...prev, notice: 'ใส่ชื่อสินค้าก่อนเริ่มสร้าง' }));
-    const work = createCards();
-    const controller = new AbortController();
-    activeGenerationRef.current = controller;
-    setSession(prev => ({ ...prev, cards: work, notice: 'AI วางแผนมุมกล้องและพรีเซนเตอร์แล้ว กำลังเริ่มคิวสร้าง…', isGenerating: true }));
-    const product = productForGeneration();
-    for (const card of work) {
-      if (controller.signal.aborted) break;
-      updateCard(card.id, { status: 'generating', error: undefined });
-      try {
-        const result = await generateProductImage(categoryForCard(card.id), product, 'shopee', buildThaiAdsPrompt(card, campaignDirection), imageModel, '1:1', undefined, card, controller.signal);
-        updateCard(card.id, { status: 'completed', imageUrl: result.imageUrl, thaiCopy: card.thaiCopy.length ? card.thaiCopy : result.thaiTexts, modelUsed: result.modelUsed, promptUsed: result.promptUsed });
-      } catch (error) {
-        if (controller.signal.aborted) break;
-        updateCard(card.id, { status: 'error', error: error instanceof Error ? error.message : 'สร้างภาพไม่สำเร็จ' });
-      }
-    }
-    if (activeGenerationRef.current === controller) activeGenerationRef.current = null;
-    if (!controller.signal.aborted) setSession(prev => ({ ...prev, isGenerating: false, notice: 'สร้างภาพครบคิวแล้ว คุณเลือกสลับโหมดข้อความ AI / แอป / ภาพคลีน ได้รายภาพ' }));
-  };
-  const regenerate = async (card: ThaiAdsCard) => {
-    if (!allImages.length || card.status === 'generating') return;
-    // Clear the previous image while the request is in flight. The result card
-    // then renders its spinner instead of silently leaving the old image visible.
-    const controller = new AbortController();
-    activeGenerationRef.current = controller;
-    updateCard(card.id, { status: 'generating', error: undefined, imageUrl: undefined });
-    setSession(prev => ({ ...prev, isGenerating: true, notice: `กำลังสร้างภาพใหม่: ${card.title}…` }));
-    try {
-      const result = await generateProductImage(categoryForCard(card.id), productForGeneration(), 'shopee', buildThaiAdsPrompt(card, campaignDirection), imageModel, '1:1', undefined, card, controller.signal);
-      updateCard(card.id, { status: 'completed', imageUrl: result.imageUrl, thaiCopy: card.thaiCopy.length ? card.thaiCopy : result.thaiTexts, modelUsed: result.modelUsed, promptUsed: result.promptUsed });
-      setSession(prev => ({ ...prev, notice: `สร้างภาพใหม่แล้ว: ${card.title}` }));
-    } catch (error) {
-      if (controller.signal.aborted) {
-        updateCard(card.id, { status: 'ready', imageUrl: undefined, error: undefined });
-        return;
-      }
-      const message = error instanceof Error ? error.message : 'สร้างภาพไม่สำเร็จ';
-      updateCard(card.id, { status: 'error', error: message, imageUrl: undefined });
-      setSession(prev => ({ ...prev, notice: `สร้างภาพใหม่ไม่สำเร็จ: ${message}` }));
-    } finally {
-      if (activeGenerationRef.current === controller) activeGenerationRef.current = null;
-      setSession(prev => ({ ...prev, isGenerating: false }));
-    }
-  };
-  const download = async (card: ThaiAdsCard) => {
-    if (!card.imageUrl) return;
-    // Export the original AI output. Thai copy is kept editable in the card
-    // controls and must not be permanently painted onto every downloaded image.
-    const blob = await imageToBlob(card.imageUrl);
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${cleanName(name)}-${card.id}.png`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  };
-  const downloadZip = async () => {
-    const complete = cards.filter(card => card.imageUrl);
-    if (!complete.length) return;
-    setSession(prev => ({ ...prev, notice: 'กำลังเตรียม ZIP…' }));
-    const zip = new JSZip();
-    for (const card of complete) {
-      zip.file(
-        `${cleanName(name)}-${card.id}.png`,
-        await imageToBlob(card.imageUrl!)
-      );
-    }
-    const blob = await zip.generateAsync({ type: 'blob' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${cleanName(name)}-shopee-ads.zip`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-    setSession(prev => ({ ...prev, notice: 'ดาวน์โหลด ZIP เรียบร้อย' }));
-  };
-
-  return <section className="max-w-7xl mx-auto space-y-6">
-    <div className="rounded-3xl bg-gradient-to-br from-orange-500 via-orange-600 to-rose-600 p-7 text-white shadow-xl">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between"><div><div className="flex items-center gap-2 text-orange-100 text-sm font-bold"><Sparkles size={16}/> AI CREATIVE STUDIO</div><h2 className="mt-2 text-3xl font-black">Shopee Thai Ads Generator</h2><p className="mt-2 max-w-2xl text-orange-50">สร้างชุดภาพโฆษณายิงแอดแบบพรีเซนเตอร์เด่น สินค้าชิ้นใหญ่ เลือกแบรนด์แอมบาสเดอร์หญิง/ชาย และโหมดตัวอักษรได้ตามใจชอบ</p></div><div className="rounded-2xl bg-white/15 px-4 py-3 text-sm"><ShieldCheck className="inline mr-2" size={18}/>Brand Ambassador · AI Native Typography · ZIP export</div></div>
-    </div>
-
-    <div className="grid gap-6 lg:grid-cols-[1.1fr_.9fr]">
-      <div className={`rounded-3xl border p-6 shadow-sm ${classCard}`}>
-        <h3 className="font-black text-xl">1. ข้อมูลและภาพอ้างอิง</h3><p className="mt-1 text-sm text-slate-500">ระบบจะไม่เดาสเปก ราคา หรือตัวเลือกที่คุณไม่ได้ยืนยัน</p>
-        <div className="mt-5 grid gap-3 sm:grid-cols-3">{(['product', 'package', 'logo'] as AssetKind[]).map(kind => <div key={kind} className="rounded-2xl border border-dashed border-orange-300 bg-orange-50/60 p-4 text-center dark:bg-orange-950/20"><input ref={fileRefs[kind]} className="hidden" type="file" accept="image/*" multiple onChange={e => addAssets(kind, e.target.files)}/><ImagePlus className="mx-auto text-orange-500"/><p className="mt-2 text-sm font-bold">{kind === 'product' ? 'ภาพสินค้า *' : kind === 'package' ? 'กล่อง / อุปกรณ์' : 'โลโก้ร้าน'}</p><button onClick={() => fileRefs[kind].current?.click()} className="mt-3 text-xs font-bold text-orange-600">เพิ่มรูป ({assets[kind].length})</button></div>)}</div>
-        {allImages.length > 0 && <div className="mt-4 flex gap-2 overflow-x-auto">{allImages.map(src => <div key={src} className="relative shrink-0"><img src={src} className="h-16 w-16 rounded-xl object-cover"/><button onClick={() => setSession(prev => ({ ...prev, assets: { product: prev.assets.product.filter(x => x !== src), package: prev.assets.package.filter(x => x !== src), logo: prev.assets.logo.filter(x => x !== src) } }))} className="absolute -right-1 -top-1 rounded-full bg-slate-900 p-1 text-white"><X size={11}/></button></div>)}</div>}
-        <div className="mt-5 grid gap-4"><label className="text-sm font-bold">ชื่อสินค้า<input value={name} onChange={e => setSession(prev => ({ ...prev, name: e.target.value }))} placeholder="เช่น ไม้แขวนเสื้อเด็ก ยกลัง 144 ชิ้น" className="mt-1 w-full rounded-xl border border-slate-300 bg-transparent px-3 py-2.5 outline-none focus:border-orange-500"/></label><label className="text-sm font-bold">รายละเอียดสินค้า<textarea value={details} onChange={e => setSession(prev => ({ ...prev, details: e.target.value }))} rows={3} placeholder="บอกวัสดุ กลุ่มลูกค้า การใช้งาน หรือบริบทที่ต้องการ" className="mt-1 w-full rounded-xl border border-slate-300 bg-transparent px-3 py-2.5 outline-none focus:border-orange-500"/></label><label className="text-sm font-bold">ข้อเท็จจริงที่ยืนยันแล้ว <span className="font-normal text-slate-500">(หนึ่งข้อ/บรรทัด)</span><textarea value={factsText} onChange={e => setSession(prev => ({ ...prev, factsText: e.target.value }))} rows={5} placeholder={'เช่น พลาสติกเกรด A\nบรรจุ 144 ชิ้น\nสีสันสดใส ทนทานไม่หักง่าย'} className="mt-1 w-full rounded-xl border border-slate-300 bg-transparent px-3 py-2.5 outline-none focus:border-orange-500"/></label></div>
-        {(price?.display || typeof price?.current === 'number' || variantGroups.length > 0) && <div className="mt-4 rounded-2xl border border-orange-200 bg-orange-50/70 p-4 dark:border-orange-900/70 dark:bg-orange-950/20">
-          <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-sm font-black text-slate-900 dark:text-white">ใช้ข้อมูลราคาและตัวเลือกในภาพ</p><p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">ค่าเริ่มต้นปิด เพื่อไม่ให้ข้อมูลที่ดึงมาโดยอัตโนมัติรบกวน prompt</p></div><span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-orange-600 shadow-sm dark:bg-slate-900">เลือกเองได้</span></div>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            <label className={`flex cursor-pointer items-center justify-between gap-3 rounded-xl border p-3 ${usePrice ? 'border-orange-300 bg-white dark:bg-slate-900' : 'border-slate-200 bg-white/60 dark:border-slate-700 dark:bg-slate-900/50'}`}><span><span className="block text-xs font-black">ใช้ราคายืนยัน</span><span className="block text-[11px] text-slate-500">ส่งราคาให้ AI เฉพาะเมื่อเปิด</span></span><input type="checkbox" checked={usePrice} onChange={event => setSession(prev => ({ ...prev, usePrice: event.target.checked }))} className="h-5 w-5 shrink-0 accent-orange-500" aria-label="ใช้ราคายืนยันใน Thai Ads"/></label>
-            <label className={`flex cursor-pointer items-center justify-between gap-3 rounded-xl border p-3 ${useVariants ? 'border-orange-300 bg-white dark:bg-slate-900' : 'border-slate-200 bg-white/60 dark:border-slate-700 dark:bg-slate-900/50'}`}><span><span className="block text-xs font-black">ใช้รุ่น / ตัวเลือกสินค้า</span><span className="block text-[11px] text-slate-500">ส่งสี ขนาด และรุ่นให้ AI เฉพาะเมื่อเปิด</span></span><input type="checkbox" checked={useVariants} onChange={event => setSession(prev => ({ ...prev, useVariants: event.target.checked }))} className="h-5 w-5 shrink-0 accent-orange-500" aria-label="ใช้รุ่นและตัวเลือกใน Thai Ads"/></label>
-          </div>
-        </div>}
-        {commerceFacts.length > 0 && <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"><b>ข้อมูลการขายที่จะส่งให้ AI</b><div className="mt-1 space-y-1">{commerceFacts.map(fact => <p key={fact}>• {fact}</p>)}</div></div>}
-      </div>
-
-      <div className={`rounded-3xl border p-6 shadow-sm ${classCard}`}><h3 className="font-black text-xl">2. AI วางแผนชุดภาพ</h3><div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">โมเดลที่เลือกสำหรับคิวนี้: {modelLabel}</div><div className="mt-5"><p className="text-sm font-bold">จำนวนภาพ</p><div className="mt-2 flex flex-wrap gap-2">{[4, 6, 8, 10].map(value => <button key={value} onClick={() => setSession(prev => ({ ...prev, count: value }))} className={`rounded-xl px-4 py-2 text-sm font-bold ${count === value ? 'bg-orange-500 text-white' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-200'}`}>{value} ภาพ</button>)}</div></div><div className="mt-5"><label className="text-sm font-bold">โทนหลักของทั้งชุด<select value={campaignStyle} onChange={e => { const style = e.target.value as CampaignStyle; setSession(prev => ({ ...prev, campaignStyle: style, campaignDirection: styleMeta(style).direction })); }} className="mt-1 w-full rounded-xl border border-slate-300 bg-transparent px-3 py-2.5 text-sm outline-none focus:border-orange-500">{CAMPAIGN_STYLES.map(style => <option key={style.id} value={style.id} className="text-slate-900">{style.label} — {style.description}</option>)}</select></label><label className="mt-3 block text-sm font-bold">คำสั่งคุมโทนร่วมกัน<textarea value={campaignDirection} onChange={e => setSession(prev => ({ ...prev, campaignDirection: e.target.value }))} rows={4} className="mt-1 w-full rounded-xl border border-slate-300 bg-transparent px-3 py-2 text-xs outline-none focus:border-orange-500"/></label><p className="mt-2 text-xs text-slate-500">AI จะใส่คำสั่งนี้ในทุกภาพ เพื่อคุมสี แสง วัสดุพื้นหลัง และภาษาองค์ประกอบให้เป็นแคมเปญเดียวกัน</p></div><div className="mt-5 rounded-2xl border border-orange-200 bg-orange-50 p-4 dark:bg-orange-950/20"><label className="flex cursor-pointer items-center gap-3"><input type="checkbox" checked={heroWithPerson} onChange={e => setSession(prev => ({ ...prev, heroWithPerson: e.target.checked }))} className="h-4 w-4 accent-orange-500"/><span className="font-bold"><UserRound className="mr-1 inline" size={17}/>ภาพปกมีพรีเซนเตอร์ถือ/แสดงสินค้า (Brand Ambassador Shot)</span></label>{heroWithPerson && <input value={personBrief} onChange={e => setSession(prev => ({ ...prev, personBrief: e.target.value }))} placeholder="ระบุพรีเซนเตอร์ เช่น พรีเซนเตอร์หญิงไทย/เอเชีย ยิ้มแย้มถือสินค้าเสนอหน้ากล้อง" className="mt-3 w-full rounded-xl border border-orange-200 bg-white px-3 py-2 text-sm text-slate-800"/>}</div><div className="mt-6 space-y-2">{BLUEPRINTS.slice(0, count).map((item, index) => <div key={item.id} className="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2 dark:bg-slate-800"><span className="w-6 text-xs font-black text-orange-500">{String(index + 1).padStart(2, '0')}</span><span className="text-sm font-semibold">{item.title}</span>{item.includePerson && <UserRound className="ml-auto text-orange-500" size={16}/>}</div>)}</div><button disabled={isGenerating} onClick={generate} className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-orange-500 px-5 py-3.5 font-black text-white shadow-lg shadow-orange-500/25 disabled:opacity-50">{isGenerating ? <Loader2 className="animate-spin"/> : <Sparkles/>}{isGenerating ? 'กำลังสร้างภาพตามคิว…' : `วางแผนและสร้าง ${count} ภาพ`}</button>{isGenerating && <button onClick={stopGeneration} className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-rose-300 bg-rose-50 px-5 py-3 font-black text-rose-700 dark:bg-rose-950/30 dark:text-rose-200"><X size={18}/>หยุดการสร้าง</button>}{notice && <p className="mt-3 text-center text-sm text-slate-500">{notice}</p>}</div>
-    </div>
-
-    {cards.length > 0 && <div className={`rounded-3xl border p-6 shadow-sm ${classCard}`}><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-black text-xl">3. ผลลัพธ์และข้อความไทย</h3><p className="text-sm text-slate-500">เลือกแนวภาพปก แบรนด์แอมบาสเดอร์หญิง/ชาย ฟอนต์ไทย และสไตล์ภาพได้รายการ์ด</p></div>{isGenerating && <button onClick={stopGeneration} className="flex items-center gap-2 rounded-xl border border-rose-300 bg-rose-50 px-4 py-2.5 text-sm font-bold text-rose-700 dark:bg-rose-950/30 dark:text-rose-200"><X size={17}/>หยุดการสร้าง</button>}<button onClick={downloadZip} disabled={!cards.some(c => c.imageUrl)} className="flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40 dark:bg-white dark:text-slate-900"><Package size={17}/>ดาวน์โหลด ZIP</button></div><div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-3">{cards.map((card, index) => <article key={card.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800"><div className="aspect-square bg-slate-200 dark:bg-slate-700">{card.status === 'generating' ? <div className="flex h-full flex-col items-center justify-center gap-3 text-orange-500"><Loader2 className="animate-spin" size={34}/><span className="text-sm font-bold">กำลังสร้างภาพใหม่…</span></div> : card.imageUrl ? <img src={card.imageUrl} className="h-full w-full object-cover"/> : <div className="flex h-full flex-col items-center justify-center gap-3 text-slate-500"><ImagePlus size={30}/><span className="text-sm">{card.status === 'error' ? card.error : 'รอคิว'}</span></div>}</div><div className="p-4"><div className="flex items-center justify-between"><span className="text-xs font-black text-orange-500">{String(index + 1).padStart(2, '0')}</span><span className="text-sm font-bold">{card.title}</span></div><p title={card.modelUsed || modelLabel} className="mt-2 truncate rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">{card.status === 'generating' ? `กำลังใช้: ${modelLabel}` : `ใช้จริง: ${card.modelUsed || 'รอสร้างภาพ'}`}</p><label className="mt-3 block text-xs font-bold text-orange-700">⚙️ โหมดการสร้างตัวอักษร/ฟอนต์<select value={card.textRenderingMode || 'ai-native'} onChange={e => updateCard(card.id, { textRenderingMode: e.target.value as TextRenderingMode })} className="mt-1 w-full rounded-xl border border-orange-200 bg-orange-50 p-2 text-xs font-bold text-slate-800 outline-none focus:border-orange-500"><option value="ai-native">🤖 AI Native Typography (ให้อิสระ AI วาดฟอนต์/กราฟิก)</option><option value="app-overlay">🎨 App Overlay (ใส่อักษร 3D/Banner ด้วยแอป)</option><option value="clean">🖼️ Clean Image (ภาพคลีน ไร้ตัวอักษร)</option></select></label>{isHeroCard(card.id) && <label className="mt-3 block text-xs font-bold text-orange-700">🖼️ แนวภาพปก & แบรนด์แอมบาสเดอร์<select value={card.heroCreativeMode || 'human-product-female'} onChange={e => updateCard(card.id, { heroCreativeMode: e.target.value as HeroCreativeMode })} className="mt-1 w-full rounded-xl border border-orange-200 bg-orange-50 p-2 text-xs font-bold text-slate-800 outline-none focus:border-orange-500">{HERO_CREATIVE_MODES.map(mode => <option key={mode.id} value={mode.id}>{mode.label}</option>)}</select></label>}<div className="mt-3 space-y-3">{card.textRenderingMode === 'app-overlay' && <label className="block text-xs font-bold text-orange-700">🔤 ฟอนต์ข้อความไทย<select value={card.thaiFont || 'Prompt'} onChange={e => updateCard(card.id, { thaiFont: e.target.value })} className="mt-1 w-full rounded-xl border border-orange-200 bg-white p-2 text-xs font-bold text-slate-800 outline-none focus:border-orange-500">{THAI_FONTS.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}</select></label>}<div className="grid grid-cols-2 gap-2"><label className="block text-xs font-bold">สไตล์ภาพ<select value={card.visualStyle} onChange={e => updateCard(card.id, { visualStyle: e.target.value as CampaignStyle })} className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs text-slate-800 outline-none focus:border-orange-500">{CAMPAIGN_STYLES.map(style => <option key={style.id} value={style.id}>{style.label}</option>)}</select></label>{card.textRenderingMode === 'app-overlay' && <label className="block text-xs font-bold">รูปแบบเลย์เอาต์<select value={card.textOverlayStyle || '3d-outlined'} onChange={e => updateCard(card.id, { textOverlayStyle: e.target.value as TextOverlayStyle })} className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs text-slate-800 outline-none focus:border-orange-500"><option value="3d-outlined">🌟 ตัวหนา 3D Outline</option><option value="top-banner">⬛ แถบแบนเนอร์ชิดบน</option><option value="modern-card">📦 การ์ดเรียบหรู</option></select></label>}</div>{card.textRenderingMode === 'app-overlay' && <label className="block text-xs font-bold">ข้อความป้าย Badge<input value={card.badgeText || ''} onChange={e => updateCard(card.id, { badgeText: e.target.value })} placeholder="เช่น พลาสติกเกรด A" className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs text-slate-800 outline-none focus:border-orange-500"/></label>}</div><div className="mt-3 group relative">
-  <div className="flex items-center justify-between gap-1 mb-1">
-    <label className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 cursor-help">
-      <span>✍️ ข้อความโฆษณาไทยสำหรับภาพนี้</span>
-      <HelpCircle className="w-3.5 h-3.5 text-orange-500 hover:text-orange-600 transition" />
-    </label>
-  </div>
-  <div className="pointer-events-none absolute bottom-full left-0 mb-2 hidden w-72 rounded-2xl border border-orange-200 bg-slate-900 p-3.5 text-[11px] font-medium leading-relaxed text-slate-100 shadow-2xl z-30 group-hover:block dark:bg-slate-950 dark:border-slate-700">
-    <div className="font-bold text-orange-400 mb-1 flex items-center gap-1">
-      <Sparkles className="w-3.5 h-3.5" /> ช่องข้อความโฆษณาไทย (One-Click AI Copy)
-    </div>
-    ข้อความในช่องนี้ AI สังเคราะห์สโลแกนและจุดขายที่สอดคล้องกับภาพการ์ดนี้ให้อัตโนมัติ (1-Click) คุณสามารถแก้ไขพิมพ์เปลี่ยนคำตามต้องการได้ตลอดเวลา แล้วกด <b>'สร้างใหม่'</b> เพื่อให้ภาพเปลี่ยนข้อความตรงตามช่องนี้ 100%
-  </div>
-  <textarea value={card.thaiCopy.join('\n')} onChange={e => updateCard(card.id, { thaiCopy: e.target.value.split('\n').filter(Boolean) })} placeholder={isHeroCard(card.id) ? "บรรทัด 1: Hook หลัก (คำขายเด่น)\nบรรทัด 2: ข้อความประกอบกระชับ" : "บรรทัด 1: สโลแกนหลัก\nบรรทัด 2: จุดเด่นสินค้าสั้นๆ"} rows={3} className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs text-slate-800 outline-none transition focus:border-orange-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"/>
-</div><div className="mt-3 flex gap-2"><button onClick={() => regenerate(card)} disabled={card.status === 'generating'} className="flex flex-1 items-center justify-center gap-1 rounded-xl border border-orange-200 py-2 text-xs font-bold text-orange-600 disabled:opacity-40"><RefreshCw size={14}/>สร้างใหม่</button><button onClick={() => download(card)} disabled={!card.imageUrl} className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-orange-500 py-2 text-xs font-bold text-white disabled:opacity-40"><Download size={14}/>PNG</button></div></div></article>)}</div></div>}
-  </section>;
-}
+import React, { useMemo, useRef } from 'react';
+import JSZip from 'jszip';
+import { Download, HelpCircle, ImagePlus, Loader2, Package, RefreshCw, ShieldCheck, Sparkles, UserRound, X } from 'lucide-react';
+import { generateProductImage, type ShopeeAdBrief } from '../apiClient';
+import { ImageCategory, type ProductData, type ProductPrice, type ProductVariantGroup } from '../../types';
+
+type AssetKind = 'product' | 'package' | 'logo';
+type AdStatus = 'ready' | 'generating' | 'completed' | 'error';
+type CampaignStyle =
+  | 'thai-premium'
+  | 'emerald-gold-premium'
+  | 'rose-gold-premium'
+  | 'royal-violet-premium'
+  | 'ruby-crimson-premium'
+  | 'monochrome-luxury'
+  | 'clean-editorial'
+  | 'vibrant-shopee'
+  | 'warm-lifestyle'
+  | 'dark-tech';
+type HeroCreativeMode = 'human-product-female' | 'human-product-male' | 'human-product-couple' | 'product-dominant' | 'short-hook' | 'price-ready' | 'human-product';
+type TextOverlayStyle = '3d-outlined' | 'top-banner' | 'modern-card';
+type TextRenderingMode = 'ai-native' | 'app-overlay' | 'clean';
+
+const THAI_FONTS: { id: string; label: string }[] = [
+  { id: 'Prompt', label: 'Prompt (นิยมที่สุด E-Commerce)' },
+  { id: 'Kanit', label: 'Kanit (ตัวหนา คอนทราสต์สูง)' },
+  { id: 'Krub', label: 'Krub (โมเดิร์น โค้งมน มินิมอล)' },
+  { id: 'Chakra Petch', label: 'Chakra Petch (สปอร์ต / ไอที)' },
+  { id: 'Sarabun', label: 'Sarabun (เรียบหรู น่าเชื่อถือ)' },
+  { id: 'Mitr', label: 'Mitr (มน นุ่มนวล เป็นธรรมชาติ)' },
+  { id: 'Noto Sans Thai', label: 'Noto Sans Thai (สากล อ่านง่าย)' },
+];
+
+const CAMPAIGN_STYLES: { id: CampaignStyle; label: string; description: string; direction: string }[] = [
+  {
+    id: 'thai-premium',
+    label: '✨ Thai Premium (ส้ม–กรมท่า)',
+    description: 'กรมท่าพรีเมียม ตัดส้ม Shopee หรู สะอาด',
+    direction: 'Thai premium ecommerce campaign. Use deep rich navy canvas, warm Shopee orange gradient accents, soft studio rim lighting, refined matte surfaces, confident but clean typography hierarchy.'
+  },
+  {
+    id: 'emerald-gold-premium',
+    label: '🟢 Emerald & Gold (เขียวมรกต–ทองคำ)',
+    description: 'เขียวมรกตหรูหรา ตัดทองคำแท้ เหมาะกับสุขภาพ/ออร์แกนิก/เครื่องครัว',
+    direction: 'High-end luxury emerald green and gold ecommerce campaign. Deep polished emerald green background, rich metallic gold borders, golden banner badges, warm luxury studio spotlighting, elegant high-class aesthetic.'
+  },
+  {
+    id: 'rose-gold-premium',
+    label: '🌸 Rose Gold Luxury (ชมพูโรสโกลด์–เบจ)',
+    description: 'ชมพูโรสโกลด์ สวยหรู สไตล์สกินแคร์/บิวตี้/แฟชั่น',
+    direction: 'Luxury Rose Gold & warm cream beige aesthetic. Soft satin background, rose gold metallic accent banners, romantic soft studio glow, high-end cosmetic and lifestyle brand atmosphere.'
+  },
+  {
+    id: 'royal-violet-premium',
+    label: '💜 Royal Violet & Gold (ม่วงรอยัล–ทอง)',
+    description: 'ม่วงเข้มราชวงศ์ ตัดทองคำ เพิ่มมูลค่าสินค้า VIP',
+    direction: 'Exclusive VIP Royal Violet and gold campaign. Deep regal violet purple background, polished gold badge framing, high-contrast luxury studio rim lighting, premium high-value product atmosphere.'
+  },
+  {
+    id: 'ruby-crimson-premium',
+    label: '🔴 Ruby Crimson & Gold (แดงรูบี้–ทอง)',
+    description: 'แดงมงคล/ตรุษจีน/แคมเปญใหญ่ ตัดทองคำ หยุดสายตา',
+    direction: 'High-converting festive & mega-campaign aesthetic. Rich deep ruby crimson red canvas, vibrant gold accent badges, energetic studio lighting, striking high-visibility commercial presentation.'
+  },
+  {
+    id: 'monochrome-luxury',
+    label: '🖤 Monochrome Luxury (ดำ–เทา–เงิน)',
+    description: 'ดำเรียบหรูสตรีท/ไฮเอนด์ ตัดเงินเมทัลลิก สไตล์สินค้าเทค/โมเดิร์น',
+    direction: 'Sleek modern monochrome luxury campaign. Deep charcoal black and dark slate background, metallic silver accent highlights, high-contrast crisp studio rim lighting, high-fashion minimalist aesthetics.'
+  },
+  {
+    id: 'clean-editorial',
+    label: '🤍 Clean Editorial (ขาวมินิมอล)',
+    description: 'ขาวสะอาด สไตล์แคตตาล็อกแบรนด์ชั้นนำ',
+    direction: 'Clean editorial product campaign. Use warm white backgrounds, restrained neutral palette, soft daylight, generous whitespace, premium catalogue composition.'
+  },
+  {
+    id: 'vibrant-shopee',
+    label: '🧡 Vibrant Shopee (ส้ม–สดใส)',
+    description: 'เน้นโปรโมชัน สีสดใส ดึงดูดความสนใจ',
+    direction: 'Vibrant Thai marketplace campaign. Use energetic orange-red accents, high clarity, friendly light, bold but tidy visual hierarchy, never cluttered.'
+  },
+  {
+    id: 'warm-lifestyle',
+    label: '☀️ Warm Lifestyle (อบอุ่น–โกลเด้น)',
+    description: 'โทนอบอุ่น ฟีลบ้านและธรรมชาติ',
+    direction: 'Warm lifestyle campaign. Use golden natural light, tactile home or everyday settings, approachable Thai lifestyle mood, cohesive warm palette.'
+  },
+  {
+    id: 'dark-tech',
+    label: '⚡ Dark Tech (ไอที–นีออน)',
+    description: 'เข้ม ดุดัน สไตล์อุปกรณ์ไอที & แก็ดเจ็ต',
+    direction: 'Modern dark technology campaign. Use charcoal or deep navy backgrounds, controlled highlights, precise product edges, premium high-contrast studio lighting.'
+  },
+];
+
+const HERO_CREATIVE_MODES: { id: HeroCreativeMode; label: string; description: string; direction: string }[] = [
+  {
+    id: 'human-product-female',
+    label: '👩 แบรนด์แอมบาสเดอร์ ผู้หญิง + สินค้าเด่น (ขายดี ⭐)',
+    description: 'พรีเซนเตอร์หญิงไทย/เอเชีย สวย น่ารัก สดใส (อายุ 23–28 ปี) ถือ/แสดงสินค้าลอยเด่นใหญ่ 75–85%',
+    direction: 'CRITICAL CAMERA FRAMING & SUBJECT POSING: Shot type MUST be a high-impact Medium Close-Up portrait (chest-up or waist-up). The presenter is a beautiful, attractive, young Thai female brand ambassador (age 23–28 years old) with a cheerful bright smile, modern stylish hair, glowing clear healthy skin, and friendly direct eye contact. The female presenter holds or displays the exact product FORWARD TOWARDS THE CAMERA LENS IN THE FOREGROUND, occupying 75-85% of the center/lower canvas. Apply the 7-point Cover Typography & Visual Hierarchy rules (1 dominant main hook, max 1 simpler subtitle line, single focal accent, distinct 3-level hierarchy, 3-layer color system, no duplicate hooks, mobile thumbnail readability).'
+  },
+  {
+    id: 'human-product-male',
+    label: '👨 แบรนด์แอมบาสเดอร์ ผู้ชาย + สินค้าเด่น',
+    description: 'พรีเซนเตอร์ชายไทย/เอเชีย หล่อ ดูดี สดใส (อายุ 25–30 ปี) ถือ/แสดงสินค้าลอยเด่นใหญ่ 75–85%',
+    direction: 'CRITICAL CAMERA FRAMING & SUBJECT POSING: Shot type MUST be a high-impact Medium Close-Up portrait (chest-up or waist-up). The presenter is a handsome, attractive, young Thai male brand ambassador (age 25–30 years old) with a confident bright smile, modern stylish hair, glowing clear healthy skin, and direct eye contact. The male presenter holds or displays the exact product FORWARD TOWARDS THE CAMERA LENS IN THE FOREGROUND, occupying 75-85% of the center/lower canvas. Apply the 7-point Cover Typography & Visual Hierarchy rules (1 dominant main hook, max 1 simpler subtitle line, single focal accent, distinct 3-level hierarchy, 3-layer color system, no duplicate hooks, mobile thumbnail readability).'
+  },
+  {
+    id: 'human-product-couple',
+    label: '👩‍❤️‍👨 แบรนด์แอมบาสเดอร์ คู่ชาย-หญิง + สินค้าเด่น',
+    description: 'พรีเซนเตอร์คู่ชายหญิง วัยรุ่นดูดี ถือ/แสดงสินค้าลอยเด่นร่วมกัน',
+    direction: 'CRITICAL CAMERA FRAMING & SUBJECT POSING: Medium Close-Up portrait showing a friendly, attractive young Thai male and female couple (age 24–30), smiling warmly into the camera lens with bright cheerful energy. They present the exact product forward towards the camera lens in foreground occupying 75-85% of the canvas. Apply the 7-point Cover Typography & Visual Hierarchy rules (1 dominant main hook, max 1 simpler subtitle line, single focal accent, distinct 3-level hierarchy, 3-layer color system, no duplicate hooks, mobile thumbnail readability).'
+  },
+  {
+    id: 'product-dominant',
+    label: '📦 สินค้าเด่นที่สุด (ไร้พรีเซนเตอร์)',
+    description: 'สินค้าใหญ่ 65–75% · Hook เดียวสั้น ๆ',
+    direction: 'Make the exact product the unmistakable hero, occupying approximately 65–75% of the canvas in the foreground. Apply the 7-point Cover Typography & Visual Hierarchy rules.'
+  },
+  {
+    id: 'short-hook',
+    label: '🎯 Hook สั้น หยุดสายตา',
+    description: 'สินค้าชัด · พื้นที่ Hook 2–5 คำ',
+    direction: 'Keep the product large and crisp at approximately 60–70% of the canvas. Apply the 7-point Cover Typography & Visual Hierarchy rules for one compelling Thai hook of 2–5 words.'
+  },
+  {
+    id: 'price-ready',
+    label: '🏷️ พร้อมราคา / โปรโมชัน',
+    description: 'สินค้าเด่น · เว้นพื้นที่ราคาเล็ก กระชับ',
+    direction: 'Make the exact product occupy approximately 60–70% of the canvas. Apply the 7-point Cover Typography & Visual Hierarchy rules.'
+  },
+];
+
+export type ThaiAdsCard = ShopeeAdBrief & {
+  id: string;
+  status: AdStatus;
+  visualStyle: CampaignStyle;
+  heroCreativeMode?: HeroCreativeMode;
+  textRenderingMode?: TextRenderingMode;
+  textOverlayStyle?: TextOverlayStyle;
+  thaiFont?: string;
+  badgeText?: string;
+  imageUrl?: string;
+  error?: string;
+  modelUsed?: string;
+  promptUsed?: string;
+};
+
+export type ThaiAdsSession = {
+  assets: Record<AssetKind, string[]>;
+  name: string;
+  details: string;
+  factsText: string;
+  price?: ProductPrice;
+  variantGroups?: ProductVariantGroup[];
+  usePrice: boolean;
+  useVariants: boolean;
+  count: number;
+  heroWithPerson: boolean;
+  personBrief: string;
+  campaignStyle: CampaignStyle;
+  campaignDirection: string;
+  cards: ThaiAdsCard[];
+  isGenerating: boolean;
+  notice: string;
+};
+
+export const createThaiAdsSession = (): ThaiAdsSession => ({
+  assets: { product: [], package: [], logo: [] },
+  name: '',
+  details: '',
+  factsText: '',
+  price: { currency: 'THB' },
+  variantGroups: [],
+  usePrice: false,
+  useVariants: false,
+  count: 10,
+  heroWithPerson: true,
+  personBrief: 'คนไทยหรือเอเชียวัยผู้ใหญ่ พรีเซนเตอร์ยิ้มแย้มถือสินค้าเด่นออกมาด้านหน้าใกล้กล้อง',
+  campaignStyle: 'thai-premium',
+  campaignDirection: CAMPAIGN_STYLES[0].direction,
+  cards: [],
+  isGenerating: false,
+  notice: '',
+});
+
+const BLUEPRINTS: Omit<ThaiAdsCard, 'status' | 'imageUrl' | 'error' | 'visualStyle'>[] = [
+  { id: 'hero', role: 'THAI AD COVER HERO', title: 'ภาพปกยิงแอด', objective: 'หยุดสายตาใน 1 วินาที พรีเซนเตอร์เด่นพร้อมสินค้า foreground ใหญ่', facts: [], thaiCopy: [], includePerson: true },
+  { id: 'hero-lifestyle', role: 'HERO COVER LIFESTYLE + PRODUCT SHOT', title: 'Hero Shot พร้อมคน', objective: 'สินค้าอยู่ foreground ใหญ่ 80% และมีพรีเซนเตอร์ไทย/เอเชียถือสินค้าเสนอหน้ากล้อง', facts: [], thaiCopy: [], includePerson: true },
+  { id: 'anatomy', role: 'PRODUCT ANATOMY & CALLOUT', title: 'จุดเด่นสินค้า', objective: 'อธิบายชิ้นส่วนหรือฟังก์ชันที่ยืนยันแล้ว', facts: [], thaiCopy: [] },
+  { id: 'spec', role: 'SPECIFICATION & SIZE', title: 'สเปกและขนาด', objective: 'สื่อสารเฉพาะสเปกที่ผู้ขายยืนยัน', facts: [], thaiCopy: [] },
+  { id: 'macro', role: 'MATERIAL & MACRO DETAIL', title: 'วัสดุและรายละเอียด', objective: 'แสดงพื้นผิว งานประกอบ และคุณภาพที่เห็นจริง', facts: [], thaiCopy: [] },
+  { id: 'action', role: 'KEY FEATURE IN ACTION', title: 'จุดเด่นขณะใช้งาน', objective: 'สาธิตประโยชน์ในสถานการณ์จริงโดยไม่กล่าวเกินจริง', facts: [], thaiCopy: [] },
+  { id: 'solution', role: 'PROBLEM / SOLUTION', title: 'ปัญหาและทางออก', objective: 'แสดงปัญหาที่ผลิตภัณฑ์ช่วยได้ตามข้อมูลจริง', facts: [], thaiCopy: [] },
+  { id: 'lifestyle', role: 'THAI LIFESTYLE USE', title: 'การใช้งานจริง', objective: 'ให้ลูกค้าเห็นบริบทใช้งานที่เข้ากับสินค้า', facts: [], thaiCopy: [], includePerson: true },
+  { id: 'package', role: 'PACKAGE, WHAT IS INCLUDED & CLOSING VALUE', title: 'ในกล่องมีอะไรบ้าง', objective: 'สรุปแพ็กเกจและสิ่งที่ได้รับตามภาพ/ข้อมูลจริง', facts: [], thaiCopy: [] },
+  { id: 'feature', role: 'FEATURE INFOGRAPHIC', title: 'อินโฟกราฟิกจุดขาย', objective: 'วางสินค้าใหญ่ด้านขวาและเว้นพื้นที่ซ้ายสำหรับข้อมูล', facts: [], thaiCopy: [] },
+];
+
+const readFiles = async (files: FileList | null): Promise<string[]> => Promise.all(Array.from(files || []).map(file => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result));
+  reader.onerror = reject;
+  reader.readAsDataURL(file);
+})));
+
+const cleanName = (value: string) => value.replace(/[\\/:*?"<>|]/g, '_').trim() || 'shopee-ad';
+const compactCoverCopy = (value: string, maxLength = 42) => {
+  const cleaned = value
+    .replace(/\*\*/g, '')
+    .replace(/^[-•\d.)\s]+/, '')
+    .split(/[.!?\n]/)[0]
+    .trim();
+  return cleaned.length > maxLength ? `${cleaned.slice(0, maxLength - 1).trim()}…` : cleaned;
+};
+const buildCoverCopy = (name: string, details: string, facts: string[]) => {
+  const hook = compactCoverCopy(facts[0] || name, 34);
+  const support = compactCoverCopy(facts[1] || details || name, 58);
+  return support && support !== hook ? [hook, support] : [hook];
+};
+
+const categoryForCard = (id: string): ImageCategory => ({
+  hero: ImageCategory.COVER,
+  anatomy: ImageCategory.INFOGRAPHIC,
+  spec: ImageCategory.SIZE_CHART,
+  macro: ImageCategory.CLOSE_UP,
+  action: ImageCategory.LIFESTYLE_A,
+  solution: ImageCategory.INFOGRAPHIC,
+  lifestyle: ImageCategory.LIFESTYLE_A,
+  package: ImageCategory.INFOGRAPHIC,
+  'hero-lifestyle': ImageCategory.LIFESTYLE_B,
+  feature: ImageCategory.INFOGRAPHIC,
+}[id] || ImageCategory.COVER);
+
+const styleMeta = (id: CampaignStyle) => CAMPAIGN_STYLES.find(style => style.id === id) || CAMPAIGN_STYLES[0];
+const isHeroCard = (id: string) => id === 'hero' || id === 'hero-lifestyle';
+const heroCreativeMeta = (id?: HeroCreativeMode) => HERO_CREATIVE_MODES.find(mode => mode.id === id || (id === 'human-product' && mode.id === 'human-product-female')) || HERO_CREATIVE_MODES[0];
+
+const sanitizeFactLine = (line: string) => {
+  let text = line.trim();
+  text = text.replace(/^[-•*\d.)\s]+/, '').replace(/\*\*/g, '').trim();
+  text = text.replace(/^(ราคาที่ผู้ขายยืนยัน|จุดเด่นสินค้า|รายละเอียดสินค้า|รายละเอียด|คุณสมบัติ|ราคาแสดง|ราคา|วิธีใช้งาน|คำขาย|hook|Key features|Confirmed selling price|Description|Product|Specs|Features)\s*:\s*/i, '').trim();
+  return text;
+};
+
+const buildSegmentTailoredCopy = (
+  cardId: string,
+  cardTitle: string,
+  name: string,
+  details: string,
+  facts: string[],
+  usePrice = false
+): string[] => {
+  const cleanNameText = name.replace(/^[-•*\d.)\s]+/, '').replace(/\*\*/g, '').trim();
+  const cleanFacts = facts
+    .map(sanitizeFactLine)
+    .filter(f => {
+      if (!f || f.length < 2) return false;
+      if (/^(จุดเด่นสินค้า|รายละเอียดสินค้า|รายละเอียด|คุณสมบัติ|ราคาที่ผู้ขายยืนยัน|สเปกและขนาด|วัสดุและการประกอบ)$/i.test(f)) return false;
+      if (!usePrice && (/^(ราคา|฿|\$)/i.test(f) || (/[\$฿\d]+/.test(f) && /บาท|ราคา/i.test(f)))) return false;
+      return true;
+    });
+
+  const f0 = cleanFacts[0] || compactCoverCopy(cleanNameText, 34) || 'สินค้าคุณภาพพรีเมียม';
+  const f1 = cleanFacts[1] || cleanFacts[0] || 'คุ้มค่าใช้งานยาวนาน';
+  const f2 = cleanFacts[2] || cleanFacts[1] || f0;
+  const f3 = cleanFacts[3] || cleanFacts[2] || f1;
+  const f4 = cleanFacts[4] || cleanFacts[3] || f2;
+  const f5 = cleanFacts[5] || cleanFacts[4] || f3;
+
+  switch (cardId) {
+    case 'hero':
+      return [
+        compactCoverCopy(f0, 34),
+        compactCoverCopy(f1 !== f0 ? f1 : (cleanNameText || 'รุ่นยอดฮิต ขายดี ⭐'), 48),
+      ].filter(Boolean);
+
+    case 'hero-lifestyle':
+      return [
+        compactCoverCopy(f1, 34),
+        compactCoverCopy(f2 !== f1 ? f2 : 'ตอบโจทย์ทุกการใช้งาน', 48),
+      ].filter(Boolean);
+
+    case 'anatomy':
+      return [
+        compactCoverCopy(f2, 36),
+        compactCoverCopy(f3 !== f2 ? f3 : 'ฟังก์ชันใช้งานครบครัน', 48),
+      ].filter(Boolean);
+
+    case 'spec': {
+      const specFacts = cleanFacts.filter(f => /เบอร์|นิ้ว|ซม|มม|ขนาด|น้ำหนัก|หนา|กว้าง|ยาว|สูง|เกรด|รุ่น/i.test(f));
+      const chosenSpecs = (specFacts.length ? specFacts : cleanFacts.slice(1)).slice(0, 2);
+      return chosenSpecs.map(f => compactCoverCopy(f, 44)).filter(Boolean);
+    }
+
+    case 'macro':
+      return [
+        compactCoverCopy(f3, 36),
+        compactCoverCopy(f4 !== f3 ? f4 : 'งานประกอบประณีต ทนทาน', 48),
+      ].filter(Boolean);
+
+    case 'action':
+      return [
+        compactCoverCopy(f4, 36),
+        compactCoverCopy(f5 !== f4 ? f5 : 'สะดวก รวดเร็ว พร้อมใช้', 48),
+      ].filter(Boolean);
+
+    case 'solution':
+      return [
+        compactCoverCopy(f5, 36),
+        compactCoverCopy(f0 !== f5 ? f0 : 'ตอบโจทย์ปัญหาตรงจุด', 48),
+      ].filter(Boolean);
+
+    case 'lifestyle':
+      return [
+        compactCoverCopy(f1, 36),
+        compactCoverCopy(f4 !== f1 ? f4 : 'เข้ากับทุกไลฟ์สไตล์การใช้งาน', 48),
+      ].filter(Boolean);
+
+    case 'package':
+      return [
+        'แพ็กเกจสินค้าครบชุด',
+        compactCoverCopy(cleanNameText || f0, 44),
+      ].filter(Boolean);
+
+    case 'feature':
+      return [
+        compactCoverCopy(f2, 36),
+        compactCoverCopy(f4 !== f2 ? f4 : f5, 48),
+      ].filter(Boolean);
+
+    default:
+      return [compactCoverCopy(f0, 40)];
+  }
+};
+
+const buildThaiAdsPrompt = (card: ThaiAdsCard, campaignDirection: string) => {
+  const mode = card.textRenderingMode || 'ai-native';
+
+  let textDirective = '';
+  if (mode === 'ai-native') {
+    textDirective = `TYPOGRAPHY & VISUAL ART: Design creative, high-impact Thai text graphics tailored specifically to this product. Feel free to use diverse font styles (e.g., bold 3D extruded text, modern dynamic headlines, glowing stroke outlines, brush calligraphy, ribbon banners, or sleek geometric badges). Match colors organically to the product palette and campaign visual style. Avoid repeating the same simple rounded capsule pill shape on every image. Thai copy to render: "${card.thaiCopy.join(' | ')}". STRICT NO-PRICE RULE: Do NOT render price numbers, price ranges, currency symbols (฿, $), or "ราคาที่ผู้ขายยืนยัน" inside the image unless explicitly included in the Thai copy above.`;
+  } else if (mode === 'clean') {
+    textDirective = 'Do not render any text, prices, or words inside the image. Pure product studio photography only.';
+  } else {
+    textDirective = 'Leave a clean editable overlay zone at top or corner for client-side Thai text overlay. Do not render text inside the image.';
+  }
+
+  let presenterDirective = '';
+  if (card.heroCreativeMode === 'human-product-female') {
+    presenterDirective = `CAMERA & POSING INSTRUCTIONS: Sharp, crystal-clear Medium Close-Up portrait (chest-up). Include ONE beautiful, attractive, young Thai female brand ambassador (age 23–28 years old) with a warm cheerful smile, modern styled hair, clear glowing skin, and direct eye contact with the camera. The presenter holds/presents the exact product ONCE in her hands. CRITICAL FOCUS RULE: Both the presenter's face AND the product MUST be in razor-sharp focus with professional studio lighting. Do NOT blur out the presenter into the background. SINGLE PRODUCT RULE: Render the exact product ONCE only; do NOT render a second duplicate product in the scene or background.`;
+  } else if (card.heroCreativeMode === 'human-product-male') {
+    presenterDirective = `CAMERA & POSING INSTRUCTIONS: Sharp, crystal-clear Medium Close-Up portrait (chest-up). Include ONE handsome, attractive, young Thai male brand ambassador (age 25–30 years old) with a confident bright smile, modern styled hair, clear glowing skin, and direct eye contact with the camera. The presenter holds/presents the exact product ONCE in his hands. CRITICAL FOCUS RULE: Both the presenter's face AND the product MUST be in razor-sharp focus with professional studio lighting. Do NOT blur out the presenter into the background. SINGLE PRODUCT RULE: Render the exact product ONCE only; do NOT render a second duplicate product in the scene or background.`;
+  } else if (card.heroCreativeMode === 'human-product-couple') {
+    presenterDirective = `CAMERA & POSING INSTRUCTIONS: Sharp Medium Close-Up portrait showing ONE attractive young Thai couple (male & female, age 24–30) smiling warmly together at the camera, holding/presenting the exact product ONCE. Both faces AND the product MUST be in razor-sharp focus. Single product only.`;
+  } else if (card.heroCreativeMode === 'product-dominant' || card.heroCreativeMode === 'short-hook' || card.heroCreativeMode === 'price-ready') {
+    presenterDirective = 'STRICT NO-PERSON RULE: Pure product hero photography ONLY. Do NOT render any human, presenter, model, face, hands, or body parts in the image. The product is the 100% sole focal point occupying 75-80% of center canvas.';
+  } else if (card.includePerson) {
+    presenterDirective = `CAMERA & POSING INSTRUCTIONS: Sharp Medium Close-Up shot. Include ONE beautiful young Thai brand ambassador (age 23–30) with a warm smile, holding the product. Both presenter and product MUST be in sharp focus. Single product only.`;
+  } else {
+    presenterDirective = 'Do not include people in this product shot.';
+  }
+
+  return [
+    `Thai Shopee High-Impact Ads role: ${card.role}.`,
+    `Objective: ${card.objective}.`,
+    `Campaign art direction shared by the entire image set: ${campaignDirection}`,
+    `This card's visual treatment: ${styleMeta(card.visualStyle).label}. Keep palette, lighting, camera language, background materials compatible with the campaign direction.`,
+    'Use a clean Thai high-information ecommerce layout, with the exact reference product large and unmistakable. Preserve identity, colour, materials, labels, shape, proportions, and included pieces.',
+    '3D PERSPECTIVE FREEDOM: Reconstruct the exact product geometry 3-dimensionally. Do NOT freeze the exact camera angle of the uploaded reference photo. Feel free to render the product from dynamic commercial angles (e.g. 3/4 isometric angle, side profile, top-down flatlay, macro detail, or low hero angle) appropriate for this card role, while keeping the product 100% identical.',
+    'REALISTIC HOME & LIFESTYLE PHYSICS MANDATE: If the product is cookware, a wok, pan, or kitchen appliance, it MUST be placed directly ON A REAL STOVE, GAS HOB, or INDUCTION BURNER when cooking food with steam. NEVER render a hot pan stir-frying food directly on a bare wooden dining table or countertop without a stove. Ensure natural hand ergonomics and believable posture—one hand holding utensil or handle with a natural grip.',
+    'COMMERCIAL REALISM & SCENE PHYSICS DIRECTIVES: (1) Match environment to authentic product domain (kitchen/stove for cookware, outdoor patio for BBQ, vanity for beauty, desk for tech). (2) For "What\'s in the Box" cards, render ONLY confirmed included items; do NOT invent unconfirmed extra accessories. (3) For Spec/Size cards, anchor clean dimension lines directly to product edges—never floating in air. (4) Ensure 100% natural human hand ergonomics without clashing tools.',
+    card.facts.length ? `Confirmed facts only: ${card.facts.filter(f => !/ราคาที่ผู้ขายยืนยัน|฿|\$/i.test(f)).join(' | ')}.` : 'Use only visible product details; do not invent specifications.',
+    presenterDirective,
+    isHeroCard(card.id) && card.heroCreativeMode ? `Cover creative direction — ${heroCreativeMeta(card.heroCreativeMode).label}: ${heroCreativeMeta(card.heroCreativeMode).direction}` : '',
+    isHeroCard(card.id) ? `COVER TYPOGRAPHY & VISUAL HIERARCHY RULES (MANDATORY):
+1. NO DUPLICATE HOOKS (Hook ห้ามซ้ำทั้งภาพ): Never repeat the same slogan, phrase, or text across lines anywhere on the image canvas.
+2. DOMINANT MAIN HOOK (Main Hook ใหญ่ที่สุดเพียง 1 ชุด): The main Thai headline hook MUST be the single largest text element on the entire image.
+3. MAX 1 SUPPORTING LINE (มีข้อความรองได้สูงสุด 1 บรรทัด): At most ONE supporting subtitle line below or next to the main headline. This line MUST be significantly simpler, lighter, and smaller than the main hook.
+4. SINGLE FOCAL ACCENT (เน้นคำหรือเลขสำคัญได้เพียงจุดเดียว): Emphasize or highlight at most ONE single key word, number, or feature claim on the entire image canvas.
+5. DISTINCT 3-LEVEL TYPOGRAPHY HIERARCHY (ทั้ง 3 ระดับต้องต่างกันจริง): The Main Hook, Supporting Line, and Accent Highlight MUST differ visibly in font size, font weight, and visual treatment.
+6. 3-LAYER COLOR SYSTEM (บังคับใช้ระบบสี 3 ชั้น): Apply a refined 3-layer color system (Primary text color, Deep outline/drop shadow, and ONE dynamic accent color). NEVER use the identical yellow-red-black text effect across all lines, and NEVER use identical font styles or weights for every line.
+7. THUMBNAIL READABILITY (เน้นการอ่านได้ชัดแม้อย่อเป็น thumbnail บนมือถือ): All rendered Thai headlines must be ultra-legible with high contrast, perfectly readable even when scaled down to a small mobile e-commerce thumbnail.` : '',
+    textDirective,
+    'STRICT NO-WATERMARK RULE: Do NOT render any digital watermarks, logo stamps, brand icons, Gemini logos, camera watermarks, or corner badges at the bottom-left, bottom-right, or anywhere on the image.',
+    'SOURCE IMAGE WATERMARK REMOVAL RULE: If the input reference photo contains any existing watermarks, logos, text overlays, timestamps, or corner badges, do NOT reproduce or copy those watermarks into the new generated image. Remove all source watermarks completely.',
+  ].filter(Boolean).join('\n\n');
+};
+
+/** Render High-Converting Thai E-Commerce Typography & Badges onto Canvas */
+async function imageWithCopy(
+  url: string,
+  copy: string[],
+  isCover = false,
+  overlayStyle: TextOverlayStyle = '3d-outlined',
+  badgeText?: string,
+  fontFamily = 'Prompt',
+  textRenderingMode: TextRenderingMode = 'ai-native'
+) {
+  const image = new Image();
+  image.crossOrigin = 'anonymous';
+  image.src = url;
+  await image.decode();
+
+  if (textRenderingMode === 'ai-native' || textRenderingMode === 'clean') {
+    const response = await fetch(url);
+    return await response.blob();
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  const ctx = canvas.getContext('2d')!;
+  ctx.drawImage(image, 0, 0);
+
+  const lines = copy.filter(Boolean).slice(0, isCover ? 2 : 4);
+  const w = canvas.width;
+  const h = canvas.height;
+
+  if (lines.length) {
+    const pad = Math.max(30, w * 0.045);
+    const headlineSize = Math.max(32, w * (isCover ? 0.065 : 0.052));
+    const supportSize = Math.max(20, w * 0.034);
+
+    if (overlayStyle === 'top-banner') {
+      const bannerHeight = headlineSize * lines.length * 1.3 + pad * 1.5;
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+      ctx.fillRect(0, 0, w, bannerHeight);
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = `800 ${headlineSize}px "${fontFamily}", "Prompt", "Kanit", Tahoma, sans-serif`;
+
+      lines.forEach((line, i) => {
+        const y = pad * 1.2 + i * (headlineSize * 1.25) + headlineSize / 2;
+        ctx.fillText(line, w / 2, y);
+      });
+    } else if (overlayStyle === '3d-outlined') {
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      const startX = pad * 1.2;
+      let startY = pad * 1.2;
+
+      const grad = ctx.createLinearGradient(0, 0, 0, h * 0.35);
+      grad.addColorStop(0, 'rgba(0,0,0,0.65)');
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, w, h * 0.35);
+
+      lines.forEach((line, index) => {
+        const fontSize = index === 0 ? headlineSize : supportSize;
+        ctx.font = `${index === 0 ? '900' : '700'} ${fontSize}px "${fontFamily}", "Prompt", "Kanit", Tahoma, sans-serif`;
+
+        ctx.strokeStyle = '#180d04';
+        ctx.lineWidth = Math.max(6, fontSize * 0.16);
+        ctx.lineJoin = 'round';
+
+        ctx.shadowColor = 'rgba(0,0,0,0.85)';
+        ctx.shadowBlur = 14;
+        ctx.shadowOffsetX = 3;
+        ctx.shadowOffsetY = 4;
+
+        ctx.strokeText(line, startX, startY);
+
+        ctx.shadowColor = 'transparent';
+        ctx.fillStyle = index === 0 ? '#FFFFFF' : '#FFDD00';
+        ctx.fillText(line, startX, startY);
+
+        startY += fontSize * 1.22;
+      });
+    } else {
+      const textHeight = isCover && lines.length > 1
+        ? headlineSize * 1.18 + supportSize * 1.35
+        : headlineSize * lines.length * 1.12;
+      const height = textHeight + pad * 1.8;
+
+      ctx.fillStyle = 'rgba(11, 22, 38, 0.86)';
+      ctx.beginPath();
+      ctx.roundRect(pad, pad, w - pad * 2, height, headlineSize * 0.3);
+      ctx.fill();
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.textBaseline = 'top';
+      ctx.textAlign = 'left';
+      ctx.font = `800 ${headlineSize}px "${fontFamily}", "Prompt", "Kanit", Tahoma, sans-serif`;
+      ctx.fillText(lines[0], pad * 1.6, pad * 1.5);
+
+      if (lines[1]) {
+        ctx.fillStyle = 'rgba(255,255,255,0.88)';
+        ctx.font = `600 ${supportSize}px "${fontFamily}", "Prompt", "Kanit", Tahoma, sans-serif`;
+        ctx.fillText(lines[1], pad * 1.6, pad * 1.5 + headlineSize * 1.2);
+      }
+    }
+  }
+
+  const defaultBadge = badgeText || (isCover ? 'เกรดพรีเมียม' : undefined);
+  if (defaultBadge) {
+    const badgeFontSize = Math.max(16, w * 0.028);
+    ctx.font = `800 ${badgeFontSize}px "${fontFamily}", "Prompt", "Kanit", sans-serif`;
+    const textWidth = ctx.measureText(defaultBadge).width;
+    const badgePaddingX = badgeFontSize * 0.9;
+    const badgePaddingY = badgeFontSize * 0.45;
+    const badgeWidth = textWidth + badgePaddingX * 2;
+    const badgeHeight = badgeFontSize + badgePaddingY * 2;
+
+    const badgeX = w - pad - badgeWidth;
+    const badgeY = h - pad - badgeHeight;
+
+    const bGrad = ctx.createLinearGradient(badgeX, badgeY, badgeX, badgeY + badgeHeight);
+    bGrad.addColorStop(0, '#DC2626');
+    bGrad.addColorStop(1, '#991B1B');
+
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetY = 4;
+
+    ctx.fillStyle = bGrad;
+    ctx.beginPath();
+    ctx.roundRect(badgeX, badgeY, badgeWidth, badgeHeight, badgeHeight / 2);
+    ctx.fill();
+
+    ctx.shadowColor = 'transparent';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(defaultBadge, badgeX + badgeWidth / 2, badgeY + badgeHeight / 2);
+  }
+
+  return await new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob(blob => (blob ? resolve(blob) : reject(new Error('Export failed'))), 'image/png')
+  );
+}
+const imageToBlob = async (url: string): Promise<Blob> => {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`ไม่สามารถดาวน์โหลดภาพได้ (HTTP ${response.status})`);
+  return response.blob();
+};
+
+export function ShopeeAdsStudio({ dark, imageModel, session, setSession }: {
+  dark: boolean;
+  imageModel: string;
+  session: ThaiAdsSession;
+  setSession: React.Dispatch<React.SetStateAction<ThaiAdsSession>>;
+}) {
+  const { assets, name, details, factsText, price, variantGroups = [], usePrice = false, useVariants = false, count, heroWithPerson, personBrief, campaignStyle, campaignDirection, cards, isGenerating, notice } = session;
+  const fileRefs = { product: useRef<HTMLInputElement>(null), package: useRef<HTMLInputElement>(null), logo: useRef<HTMLInputElement>(null) };
+  const activeGenerationRef = useRef<AbortController | null>(null);
+  const allImages = useMemo(() => [...assets.product, ...assets.package, ...assets.logo], [assets]);
+  const confirmedFacts = useMemo(() => {
+    return factsText
+      .split('\n')
+      .map(sanitizeFactLine)
+      .filter(Boolean)
+      .filter(f => !/^(ราคาที่ผู้ขายยืนยัน|ราคา|฿|\$)/i.test(f) && !/^[\d.,\s\-$฿]+$/.test(f));
+  }, [factsText]);
+  const commerceFacts = useMemo(() => {
+    const output: string[] = [];
+    if (usePrice) {
+      if (price?.display) output.push(`ราคาขายที่ยืนยัน: ${price.display}`);
+      else if (typeof price?.current === 'number') output.push(`ราคาขายที่ยืนยัน: ${new Intl.NumberFormat('th-TH', { style: 'currency', currency: price.currency || 'THB' }).format(price.current)}`);
+    }
+    if (useVariants) {
+      variantGroups.forEach(group => {
+        const options = group.options.map(option => option.label).filter(Boolean);
+        if (options.length) output.push(`${group.name}: ${options.join(', ')}`);
+      });
+    }
+    return output;
+  }, [price, variantGroups, usePrice, useVariants]);
+  const allFacts = useMemo(() => [...confirmedFacts, ...commerceFacts], [confirmedFacts, commerceFacts]);
+  const classCard = dark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-900';
+  const modelLabel = imageModel === 'gemini-3.1-flash-image' ? 'Gemini 3.1 Flash Image' : imageModel;
+
+  const addAssets = async (kind: AssetKind, files: FileList | null) => {
+    const data = await readFiles(files);
+    setSession(prev => ({ ...prev, assets: { ...prev.assets, [kind]: [...prev.assets[kind], ...data] } }));
+  };
+  const createCards = () => BLUEPRINTS.slice(0, count).map(base => ({
+    ...base,
+    status: 'ready' as AdStatus,
+    visualStyle: campaignStyle,
+    textRenderingMode: 'ai-native' as TextRenderingMode,
+    textOverlayStyle: '3d-outlined' as TextOverlayStyle,
+    thaiFont: 'Prompt',
+    badgeText: base.id === 'hero' || base.id === 'hero-lifestyle' ? 'เกรดพรีเมียม' : undefined,
+    facts: allFacts,
+    thaiCopy: buildSegmentTailoredCopy(base.id, base.title, name, details, confirmedFacts, usePrice),
+    includePerson: base.id === 'hero' || base.id === 'hero-lifestyle' ? heroWithPerson : base.includePerson,
+    personBrief,
+    heroCreativeMode: isHeroCard(base.id) ? 'human-product-female' as HeroCreativeMode : undefined,
+  }));
+  const updateCard = (id: string, patch: Partial<ThaiAdsCard>) => setSession(prev => ({ ...prev, cards: prev.cards.map(card => card.id === id ? { ...card, ...patch } : card) }));
+  const productForGeneration = (): ProductData => ({
+    name,
+    description: details,
+    features: allFacts,
+    images: allImages,
+    price: usePrice ? price : undefined,
+    variantGroups: useVariants ? variantGroups : [],
+  });
+  const stopGeneration = () => {
+    if (!activeGenerationRef.current) return;
+    const confirmed = window.confirm('หยุดการสร้างภาพตอนนี้หรือไม่?\n\nคำขอถูกส่งให้ AI แล้ว เครดิตอาจถูกใช้ไปแล้วและไม่สามารถคืนอัตโนมัติได้ คุณยืนยันที่จะหยุดใช่หรือไม่?');
+    if (!confirmed) return;
+
+    activeGenerationRef.current.abort();
+    activeGenerationRef.current = null;
+    setSession(prev => ({
+      ...prev,
+      isGenerating: false,
+      notice: 'หยุดการสร้างแล้ว คุณสามารถกดสร้างใหม่ได้ทันที',
+      cards: prev.cards.map(card => card.status === 'generating'
+        ? { ...card, status: 'ready', imageUrl: undefined, error: undefined }
+        : card),
+    }));
+  };
+
+  const generate = async () => {
+    if (!allImages.length) return setSession(prev => ({ ...prev, notice: 'เพิ่มภาพสินค้าหลักอย่างน้อย 1 ภาพก่อนเริ่มสร้าง' }));
+    if (!name.trim()) return setSession(prev => ({ ...prev, notice: 'ใส่ชื่อสินค้าก่อนเริ่มสร้าง' }));
+    const work = createCards();
+    const controller = new AbortController();
+    activeGenerationRef.current = controller;
+    setSession(prev => ({ ...prev, cards: work, notice: 'AI วางแผนมุมกล้องและพรีเซนเตอร์แล้ว กำลังเริ่มคิวสร้าง…', isGenerating: true }));
+    const product = productForGeneration();
+    for (const card of work) {
+      if (controller.signal.aborted) break;
+      updateCard(card.id, { status: 'generating', error: undefined });
+      try {
+        const result = await generateProductImage(categoryForCard(card.id), product, 'shopee', buildThaiAdsPrompt(card, campaignDirection), imageModel, '1:1', undefined, card, controller.signal);
+        updateCard(card.id, { status: 'completed', imageUrl: result.imageUrl, thaiCopy: card.thaiCopy.length ? card.thaiCopy : result.thaiTexts, modelUsed: result.modelUsed, promptUsed: result.promptUsed });
+      } catch (error) {
+        if (controller.signal.aborted) break;
+        updateCard(card.id, { status: 'error', error: error instanceof Error ? error.message : 'สร้างภาพไม่สำเร็จ' });
+      }
+    }
+    if (activeGenerationRef.current === controller) activeGenerationRef.current = null;
+    if (!controller.signal.aborted) setSession(prev => ({ ...prev, isGenerating: false, notice: 'สร้างภาพครบคิวแล้ว คุณเลือกสลับโหมดข้อความ AI / แอป / ภาพคลีน ได้รายภาพ' }));
+  };
+  const regenerate = async (card: ThaiAdsCard) => {
+    if (!allImages.length || card.status === 'generating') return;
+    // Clear the previous image while the request is in flight. The result card
+    // then renders its spinner instead of silently leaving the old image visible.
+    const controller = new AbortController();
+    activeGenerationRef.current = controller;
+    updateCard(card.id, { status: 'generating', error: undefined, imageUrl: undefined });
+    setSession(prev => ({ ...prev, isGenerating: true, notice: `กำลังสร้างภาพใหม่: ${card.title}…` }));
+    try {
+      const result = await generateProductImage(categoryForCard(card.id), productForGeneration(), 'shopee', buildThaiAdsPrompt(card, campaignDirection), imageModel, '1:1', undefined, card, controller.signal);
+      updateCard(card.id, { status: 'completed', imageUrl: result.imageUrl, thaiCopy: card.thaiCopy.length ? card.thaiCopy : result.thaiTexts, modelUsed: result.modelUsed, promptUsed: result.promptUsed });
+      setSession(prev => ({ ...prev, notice: `สร้างภาพใหม่แล้ว: ${card.title}` }));
+    } catch (error) {
+      if (controller.signal.aborted) {
+        updateCard(card.id, { status: 'ready', imageUrl: undefined, error: undefined });
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'สร้างภาพไม่สำเร็จ';
+      updateCard(card.id, { status: 'error', error: message, imageUrl: undefined });
+      setSession(prev => ({ ...prev, notice: `สร้างภาพใหม่ไม่สำเร็จ: ${message}` }));
+    } finally {
+      if (activeGenerationRef.current === controller) activeGenerationRef.current = null;
+      setSession(prev => ({ ...prev, isGenerating: false }));
+    }
+  };
+  const download = async (card: ThaiAdsCard) => {
+    if (!card.imageUrl) return;
+    // Export the original AI output. Thai copy is kept editable in the card
+    // controls and must not be permanently painted onto every downloaded image.
+    const blob = await imageToBlob(card.imageUrl);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${cleanName(name)}-${card.id}.png`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+  const downloadZip = async () => {
+    const complete = cards.filter(card => card.imageUrl);
+    if (!complete.length) return;
+    setSession(prev => ({ ...prev, notice: 'กำลังเตรียม ZIP…' }));
+    const zip = new JSZip();
+    for (const card of complete) {
+      zip.file(
+        `${cleanName(name)}-${card.id}.png`,
+        await imageToBlob(card.imageUrl!)
+      );
+    }
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${cleanName(name)}-shopee-ads.zip`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    setSession(prev => ({ ...prev, notice: 'ดาวน์โหลด ZIP เรียบร้อย' }));
+  };
+
+  return <section className="max-w-7xl mx-auto space-y-6">
+    <div className="rounded-3xl bg-gradient-to-br from-orange-500 via-orange-600 to-rose-600 p-7 text-white shadow-xl">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between"><div><div className="flex items-center gap-2 text-orange-100 text-sm font-bold"><Sparkles size={16} /> AI CREATIVE STUDIO</div><h2 className="mt-2 text-3xl font-black">Shopee Thai Ads Generator</h2><p className="mt-2 max-w-2xl text-orange-50">สร้างชุดภาพโฆษณายิงแอดแบบพรีเซนเตอร์เด่น สินค้าชิ้นใหญ่ เลือกแบรนด์แอมบาสเดอร์หญิง/ชาย และโหมดตัวอักษรได้ตามใจชอบ</p></div><div className="rounded-2xl bg-white/15 px-4 py-3 text-sm"><ShieldCheck className="inline mr-2" size={18} />Brand Ambassador · AI Native Typography · ZIP export</div></div>
+    </div>
+
+    <div className="grid gap-6 lg:grid-cols-[1.1fr_.9fr]">
+      <div className={`rounded-3xl border p-6 shadow-sm ${classCard}`}>
+        <h3 className="font-black text-xl">1. ข้อมูลและภาพอ้างอิง</h3><p className="mt-1 text-sm text-slate-500">ระบบจะไม่เดาสเปก ราคา หรือตัวเลือกที่คุณไม่ได้ยืนยัน</p>
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">{(['product', 'package', 'logo'] as AssetKind[]).map(kind => <div key={kind} className="rounded-2xl border border-dashed border-orange-300 bg-orange-50/60 p-4 text-center dark:bg-orange-950/20"><input ref={fileRefs[kind]} className="hidden" type="file" accept="image/*" multiple onChange={e => addAssets(kind, e.target.files)} /><ImagePlus className="mx-auto text-orange-500" /><p className="mt-2 text-sm font-bold">{kind === 'product' ? 'ภาพสินค้า *' : kind === 'package' ? 'กล่อง / อุปกรณ์' : 'โลโก้ร้าน'}</p><button onClick={() => fileRefs[kind].current?.click()} className="mt-3 text-xs font-bold text-orange-600">เพิ่มรูป ({assets[kind].length})</button></div>)}</div>
+        {allImages.length > 0 && <div className="mt-4 flex gap-2 overflow-x-auto">{allImages.map(src => <div key={src} className="relative shrink-0"><img src={src} className="h-16 w-16 rounded-xl object-cover" /><button onClick={() => setSession(prev => ({ ...prev, assets: { product: prev.assets.product.filter(x => x !== src), package: prev.assets.package.filter(x => x !== src), logo: prev.assets.logo.filter(x => x !== src) } }))} className="absolute -right-1 -top-1 rounded-full bg-slate-900 p-1 text-white"><X size={11} /></button></div>)}</div>}
+        <div className="mt-5 grid gap-4"><label className="text-sm font-bold">ชื่อสินค้า<input value={name} onChange={e => setSession(prev => ({ ...prev, name: e.target.value }))} placeholder="เช่น ไม้แขวนเสื้อเด็ก ยกลัง 144 ชิ้น" className="mt-1 w-full rounded-xl border border-slate-300 bg-transparent px-3 py-2.5 outline-none focus:border-orange-500" /></label><label className="text-sm font-bold">รายละเอียดสินค้า<textarea value={details} onChange={e => setSession(prev => ({ ...prev, details: e.target.value }))} rows={3} placeholder="บอกวัสดุ กลุ่มลูกค้า การใช้งาน หรือบริบทที่ต้องการ" className="mt-1 w-full rounded-xl border border-slate-300 bg-transparent px-3 py-2.5 outline-none focus:border-orange-500" /></label><label className="text-sm font-bold">ข้อเท็จจริงที่ยืนยันแล้ว <span className="font-normal text-slate-500">(หนึ่งข้อ/บรรทัด)</span><textarea value={factsText} onChange={e => setSession(prev => ({ ...prev, factsText: e.target.value }))} rows={5} placeholder={'เช่น พลาสติกเกรด A\nบรรจุ 144 ชิ้น\nสีสันสดใส ทนทานไม่หักง่าย'} className="mt-1 w-full rounded-xl border border-slate-300 bg-transparent px-3 py-2.5 outline-none focus:border-orange-500" /></label></div>
+        {(price?.display || typeof price?.current === 'number' || variantGroups.length > 0) && <div className="mt-4 rounded-2xl border border-orange-200 bg-orange-50/70 p-4 dark:border-orange-900/70 dark:bg-orange-950/20">
+          <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-sm font-black text-slate-900 dark:text-white">ใช้ข้อมูลราคาและตัวเลือกในภาพ</p><p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">ค่าเริ่มต้นปิด เพื่อไม่ให้ข้อมูลที่ดึงมาโดยอัตโนมัติรบกวน prompt</p></div><span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-orange-600 shadow-sm dark:bg-slate-900">เลือกเองได้</span></div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <label className={`flex cursor-pointer items-center justify-between gap-3 rounded-xl border p-3 ${usePrice ? 'border-orange-300 bg-white dark:bg-slate-900' : 'border-slate-200 bg-white/60 dark:border-slate-700 dark:bg-slate-900/50'}`}><span><span className="block text-xs font-black">ใช้ราคายืนยัน</span><span className="block text-[11px] text-slate-500">ส่งราคาให้ AI เฉพาะเมื่อเปิด</span></span><input type="checkbox" checked={usePrice} onChange={event => setSession(prev => ({ ...prev, usePrice: event.target.checked }))} className="h-5 w-5 shrink-0 accent-orange-500" aria-label="ใช้ราคายืนยันใน Thai Ads" /></label>
+            <label className={`flex cursor-pointer items-center justify-between gap-3 rounded-xl border p-3 ${useVariants ? 'border-orange-300 bg-white dark:bg-slate-900' : 'border-slate-200 bg-white/60 dark:border-slate-700 dark:bg-slate-900/50'}`}><span><span className="block text-xs font-black">ใช้รุ่น / ตัวเลือกสินค้า</span><span className="block text-[11px] text-slate-500">ส่งสี ขนาด และรุ่นให้ AI เฉพาะเมื่อเปิด</span></span><input type="checkbox" checked={useVariants} onChange={event => setSession(prev => ({ ...prev, useVariants: event.target.checked }))} className="h-5 w-5 shrink-0 accent-orange-500" aria-label="ใช้รุ่นและตัวเลือกใน Thai Ads" /></label>
+          </div>
+          {variantGroups.some(g => g.options.some(o => o.imageUrl)) && (
+            <div className="mt-3 flex flex-wrap gap-2 pt-2 border-t border-orange-200/60 dark:border-orange-900/40">
+              {variantGroups.flatMap(g => g.options).filter(o => o.imageUrl).map(o => (
+                <div key={o.id} className="flex items-center gap-1.5 rounded-xl border border-orange-200 bg-white/90 dark:bg-slate-900 px-2 py-1 text-xs shadow-2xs">
+                  <img src={o.imageUrl} alt={o.label} className="w-5 h-5 rounded-md object-cover border border-slate-200 dark:border-slate-700" />
+                  <span className="font-semibold text-[11px] text-slate-700 dark:text-slate-200">{o.label}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>}
+        {commerceFacts.length > 0 && <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"><b>ข้อมูลการขายที่จะส่งให้ AI</b><div className="mt-1 space-y-1">{commerceFacts.map(fact => <p key={fact}>• {fact}</p>)}</div></div>}
+      </div>
+
+      <div className={`rounded-3xl border p-6 shadow-sm ${classCard}`}><h3 className="font-black text-xl">2. AI วางแผนชุดภาพ</h3><div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">โมเดลที่เลือกสำหรับคิวนี้: {modelLabel}</div><div className="mt-5"><p className="text-sm font-bold">จำนวนภาพ</p><div className="mt-2 flex flex-wrap gap-2">{[4, 6, 8, 10].map(value => <button key={value} onClick={() => setSession(prev => ({ ...prev, count: value }))} className={`rounded-xl px-4 py-2 text-sm font-bold ${count === value ? 'bg-orange-500 text-white' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-200'}`}>{value} ภาพ</button>)}</div></div><div className="mt-5"><label className="text-sm font-bold">โทนหลักของทั้งชุด<select value={campaignStyle} onChange={e => { const style = e.target.value as CampaignStyle; setSession(prev => ({ ...prev, campaignStyle: style, campaignDirection: styleMeta(style).direction })); }} className="mt-1 w-full rounded-xl border border-slate-300 bg-transparent px-3 py-2.5 text-sm outline-none focus:border-orange-500">{CAMPAIGN_STYLES.map(style => <option key={style.id} value={style.id} className="text-slate-900">{style.label} — {style.description}</option>)}</select></label><label className="mt-3 block text-sm font-bold">คำสั่งคุมโทนร่วมกัน<textarea value={campaignDirection} onChange={e => setSession(prev => ({ ...prev, campaignDirection: e.target.value }))} rows={4} className="mt-1 w-full rounded-xl border border-slate-300 bg-transparent px-3 py-2 text-xs outline-none focus:border-orange-500" /></label><p className="mt-2 text-xs text-slate-500">AI จะใส่คำสั่งนี้ในทุกภาพ เพื่อคุมสี แสง วัสดุพื้นหลัง และภาษาองค์ประกอบให้เป็นแคมเปญเดียวกัน</p></div><div className="mt-5 rounded-2xl border border-orange-200 bg-orange-50 p-4 dark:bg-orange-950/20"><label className="flex cursor-pointer items-center gap-3"><input type="checkbox" checked={heroWithPerson} onChange={e => setSession(prev => ({ ...prev, heroWithPerson: e.target.checked }))} className="h-4 w-4 accent-orange-500" /><span className="font-bold"><UserRound className="mr-1 inline" size={17} />ภาพปกมีพรีเซนเตอร์ถือ/แสดงสินค้า (Brand Ambassador Shot)</span></label>{heroWithPerson && <input value={personBrief} onChange={e => setSession(prev => ({ ...prev, personBrief: e.target.value }))} placeholder="ระบุพรีเซนเตอร์ เช่น พรีเซนเตอร์หญิงไทย/เอเชีย ยิ้มแย้มถือสินค้าเสนอหน้ากล้อง" className="mt-3 w-full rounded-xl border border-orange-200 bg-white px-3 py-2 text-sm text-slate-800" />}</div><div className="mt-6 space-y-2">{BLUEPRINTS.slice(0, count).map((item, index) => <div key={item.id} className="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2 dark:bg-slate-800"><span className="w-6 text-xs font-black text-orange-500">{String(index + 1).padStart(2, '0')}</span><span className="text-sm font-semibold">{item.title}</span>{item.includePerson && <UserRound className="ml-auto text-orange-500" size={16} />}</div>)}</div><button disabled={isGenerating} onClick={generate} className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-orange-500 px-5 py-3.5 font-black text-white shadow-lg shadow-orange-500/25 disabled:opacity-50">{isGenerating ? <Loader2 className="animate-spin" /> : <Sparkles />}{isGenerating ? 'กำลังสร้างภาพตามคิว…' : `วางแผนและสร้าง ${count} ภาพ`}</button>{isGenerating && <button onClick={stopGeneration} className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-rose-300 bg-rose-50 px-5 py-3 font-black text-rose-700 dark:bg-rose-950/30 dark:text-rose-200"><X size={18} />หยุดการสร้าง</button>}{notice && <p className="mt-3 text-center text-sm text-slate-500">{notice}</p>}</div>
+    </div>
+
+    {cards.length > 0 && <div className={`rounded-3xl border p-6 shadow-sm ${classCard}`}><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-black text-xl">3. ผลลัพธ์และข้อความไทย</h3><p className="text-sm text-slate-500">เลือกแนวภาพปก แบรนด์แอมบาสเดอร์หญิง/ชาย ฟอนต์ไทย และสไตล์ภาพได้รายการ์ด</p></div>{isGenerating && <button onClick={stopGeneration} className="flex items-center gap-2 rounded-xl border border-rose-300 bg-rose-50 px-4 py-2.5 text-sm font-bold text-rose-700 dark:bg-rose-950/30 dark:text-rose-200"><X size={17} />หยุดการสร้าง</button>}<button onClick={downloadZip} disabled={!cards.some(c => c.imageUrl)} className="flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40 dark:bg-white dark:text-slate-900"><Package size={17} />ดาวน์โหลด ZIP</button></div><div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-3">{cards.map((card, index) => <article key={card.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800"><div className="aspect-square bg-slate-200 dark:bg-slate-700">{card.status === 'generating' ? <div className="flex h-full flex-col items-center justify-center gap-3 text-orange-500"><Loader2 className="animate-spin" size={34} /><span className="text-sm font-bold">กำลังสร้างภาพใหม่…</span></div> : card.imageUrl ? <img src={card.imageUrl} className="h-full w-full object-cover" /> : <div className="flex h-full flex-col items-center justify-center gap-3 text-slate-500"><ImagePlus size={30} /><span className="text-sm">{card.status === 'error' ? card.error : 'รอคิว'}</span></div>}</div><div className="p-4"><div className="flex items-center justify-between"><span className="text-xs font-black text-orange-500">{String(index + 1).padStart(2, '0')}</span><span className="text-sm font-bold">{card.title}</span></div><p title={card.modelUsed || modelLabel} className="mt-2 truncate rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">{card.status === 'generating' ? `กำลังใช้: ${modelLabel}` : `ใช้จริง: ${card.modelUsed || 'รอสร้างภาพ'}`}</p><label className="mt-3 block text-xs font-bold text-orange-700">⚙️ โหมดการสร้างตัวอักษร/ฟอนต์<select value={card.textRenderingMode || 'ai-native'} onChange={e => updateCard(card.id, { textRenderingMode: e.target.value as TextRenderingMode })} className="mt-1 w-full rounded-xl border border-orange-200 bg-orange-50 p-2 text-xs font-bold text-slate-800 outline-none focus:border-orange-500"><option value="ai-native">🤖 AI Native Typography (ให้อิสระ AI วาดฟอนต์/กราฟิก)</option><option value="app-overlay">🎨 App Overlay (ใส่อักษร 3D/Banner ด้วยแอป)</option><option value="clean">🖼️ Clean Image (ภาพคลีน ไร้ตัวอักษร)</option></select></label>{isHeroCard(card.id) && <label className="mt-3 block text-xs font-bold text-orange-700">🖼️ แนวภาพปก & แบรนด์แอมบาสเดอร์<select value={card.heroCreativeMode || 'human-product-female'} onChange={e => updateCard(card.id, { heroCreativeMode: e.target.value as HeroCreativeMode })} className="mt-1 w-full rounded-xl border border-orange-200 bg-orange-50 p-2 text-xs font-bold text-slate-800 outline-none focus:border-orange-500">{HERO_CREATIVE_MODES.map(mode => <option key={mode.id} value={mode.id}>{mode.label}</option>)}</select></label>}<div className="mt-3 space-y-3">{card.textRenderingMode === 'app-overlay' && <label className="block text-xs font-bold text-orange-700">🔤 ฟอนต์ข้อความไทย<select value={card.thaiFont || 'Prompt'} onChange={e => updateCard(card.id, { thaiFont: e.target.value })} className="mt-1 w-full rounded-xl border border-orange-200 bg-white p-2 text-xs font-bold text-slate-800 outline-none focus:border-orange-500">{THAI_FONTS.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}</select></label>}<div className="grid grid-cols-2 gap-2"><label className="block text-xs font-bold">สไตล์ภาพ<select value={card.visualStyle} onChange={e => updateCard(card.id, { visualStyle: e.target.value as CampaignStyle })} className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs text-slate-800 outline-none focus:border-orange-500">{CAMPAIGN_STYLES.map(style => <option key={style.id} value={style.id}>{style.label}</option>)}</select></label>{card.textRenderingMode === 'app-overlay' && <label className="block text-xs font-bold">รูปแบบเลย์เอาต์<select value={card.textOverlayStyle || '3d-outlined'} onChange={e => updateCard(card.id, { textOverlayStyle: e.target.value as TextOverlayStyle })} className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs text-slate-800 outline-none focus:border-orange-500"><option value="3d-outlined">🌟 ตัวหนา 3D Outline</option><option value="top-banner">⬛ แถบแบนเนอร์ชิดบน</option><option value="modern-card">📦 การ์ดเรียบหรู</option></select></label>}</div>{card.textRenderingMode === 'app-overlay' && <label className="block text-xs font-bold">ข้อความป้าย Badge<input value={card.badgeText || ''} onChange={e => updateCard(card.id, { badgeText: e.target.value })} placeholder="เช่น พลาสติกเกรด A" className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 text-xs text-slate-800 outline-none focus:border-orange-500" /></label>}</div><div className="mt-3 group relative">
+      <div className="flex items-center justify-between gap-1 mb-1">
+        <label className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 cursor-help">
+          <span>✍️ ข้อความโฆษณาไทยสำหรับภาพนี้</span>
+          <HelpCircle className="w-3.5 h-3.5 text-orange-500 hover:text-orange-600 transition" />
+        </label>
+      </div>
+      <div className="pointer-events-none absolute bottom-full left-0 mb-2 hidden w-72 rounded-2xl border border-orange-200 bg-slate-900 p-3.5 text-[11px] font-medium leading-relaxed text-slate-100 shadow-2xl z-30 group-hover:block dark:bg-slate-950 dark:border-slate-700">
+        <div className="font-bold text-orange-400 mb-1 flex items-center gap-1">
+          <Sparkles className="w-3.5 h-3.5" /> ช่องข้อความโฆษณาไทย (One-Click AI Copy)
+        </div>
+        ข้อความในช่องนี้ AI สังเคราะห์สโลแกนและจุดขายที่สอดคล้องกับภาพการ์ดนี้ให้อัตโนมัติ (1-Click) คุณสามารถแก้ไขพิมพ์เปลี่ยนคำตามต้องการได้ตลอดเวลา แล้วกด <b>'สร้างใหม่'</b> เพื่อให้ภาพเปลี่ยนข้อความตรงตามช่องนี้ 100%
+      </div>
+      <textarea value={card.thaiCopy.join('\n')} onChange={e => updateCard(card.id, { thaiCopy: e.target.value.split('\n').filter(Boolean) })} placeholder={isHeroCard(card.id) ? "บรรทัด 1: Hook หลัก (คำขายเด่น)\nบรรทัด 2: ข้อความประกอบกระชับ" : "บรรทัด 1: สโลแกนหลัก\nบรรทัด 2: จุดเด่นสินค้าสั้นๆ"} rows={3} className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs text-slate-800 outline-none transition focus:border-orange-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" />
+    </div><div className="mt-3 flex gap-2"><button onClick={() => regenerate(card)} disabled={card.status === 'generating'} className="flex flex-1 items-center justify-center gap-1 rounded-xl border border-orange-200 py-2 text-xs font-bold text-orange-600 disabled:opacity-40"><RefreshCw size={14} />สร้างใหม่</button><button onClick={() => download(card)} disabled={!card.imageUrl} className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-orange-500 py-2 text-xs font-bold text-white disabled:opacity-40"><Download size={14} />PNG</button></div></div></article>)}</div></div>}
+  </section>;
+}

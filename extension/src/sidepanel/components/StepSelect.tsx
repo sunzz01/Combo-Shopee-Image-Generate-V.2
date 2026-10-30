@@ -271,10 +271,22 @@ ${imageLinks}
                         )}
                     </div>
                     {product.variantGroups.length > 0 && (
-                        <p className="text-[11px] text-slate-600 font-medium">
-                            <span className="font-bold text-orange-700">ตัวเลือก: </span>
-                            {product.variantGroups.map(g => `${g.name} (${g.options.length})`).join(' • ')}
-                        </p>
+                        <div className="space-y-1.5 pt-0.5">
+                            <p className="text-[11px] text-slate-600 font-medium">
+                                <span className="font-bold text-orange-700">ตัวเลือก: </span>
+                                {product.variantGroups.map(g => `${g.name} (${g.options.length})`).join(' • ')}
+                            </p>
+                            {product.variantGroups.some(g => g.options.some(o => o.imageUrl)) && (
+                                <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pt-0.5">
+                                    {product.variantGroups.flatMap(g => g.options).filter(o => o.imageUrl).map(o => (
+                                        <div key={o.id} className="flex items-center gap-1.5 rounded-lg border border-orange-200/80 bg-white/90 px-1.5 py-1 text-[10px] text-slate-700 shadow-2xs">
+                                            <img src={o.imageUrl} alt={o.label} className="w-5 h-5 rounded object-cover border border-slate-100" />
+                                            <span className="max-w-[80px] truncate font-medium">{o.label}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
                     )}
                     {product.description && (
                         <p className="text-[10px] text-slate-500 line-clamp-2 italic">
